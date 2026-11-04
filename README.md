@@ -127,3 +127,26 @@ The dark navy base remains, with much darker black header and background, strong
 - Radar: optional sharp/smoothed rendering, 512-pixel tiles, delayed removal of old tiles to reduce flashing, and slower animation updates to reduce unnecessary requests. The underlying RainViewer dataset remains limited to max zoom 7 and ~10-minute frames; 512px tiles do not create new meteorological detail.
 - Existing personal arrangements will reset once to account for removed/added panels.
 - Use as a planning aid only; check official aviation weather, charts, NOTAMs and briefings.
+
+
+## FAA NMS API integration (v1.8)
+
+The previous NOTAC API is replaced by **FAA NMS**. In Render > Environment set:
+
+- `NMS_API_CLIENT_ID`: NMS registration **Key**
+- `NMS_API_CLIENT_SECRET`: NMS registration **Secret**
+- `NMS_API_ENV`: `test` for now. Test data is not operational; do not use it for flight decisions.
+
+The provider's supplied SoapUI file identifies:
+
+- Test token URL: `https://api-staging.cgifederal-aim.com/v1/auth/token`
+- Test API root: `https://api-staging.cgifederal-aim.com/nmsapi`
+- GET `/v1/notams?location=<airport>` with `nmsResponseFormat: GEOJSON` and Bearer token
+
+OAuth client credentials are exchanged **server-side**. No secrets are sent to the browser. The client uses the source airport selection and shows the provider's notices directly on the dashboard. Token caching reduces authentication traffic.
+
+**Limitations:** The provided SoapUI definition documents request filters and GeoJSON output, but it contains no example successful NOTAM response body or complete feature-property schema. Therefore the normalized display uses conservative property detection and preserves raw source values. If the provider uses a different envelope it will show an error instead of inventing notices; provide a *redacted* sample response to finish precise field mapping. The default test environment is never represented as live operational NOTAMs. The list is capped at 250 records until pagination semantics are confirmed. Use official flight briefings and current operational NOTAMs for flight decisions.
+
+For production use, request the provider-confirmed production token and API base URLs. Set `NMS_API_ENV=production` and add `NMS_AUTH_URL` and `NMS_API_BASE_URL`. Do not simply point test credentials at production. Remove obsolete `NOTAC_API_KEY` from Render once FAA NMS is working.
+
+**Security:** Credentials belong in Render Environment only. Do not commit keys, secrets, API response files containing tokens, or SoapUI profiles with active credentials. Rotate any exposed tokens.

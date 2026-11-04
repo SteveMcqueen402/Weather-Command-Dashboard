@@ -85,6 +85,42 @@ async function officialChart(key){
   return null;
 }
 
+// FAA NMS OAuth2 credentials remain server-side. Never send them to browsers.
+const nmsTokenCache=new Map();
+function isSecureNmsEndpoint(raw){try{return new URL(raw).protocol==='https:';}catch{return false;}}
+async function nmsAccessToken(auth,id,secret){
+  const key=auth+'|'+id;
+  const cached=nmsTokenCache.get(key);
+  if(cached&&cached.until>Date.now()+30000)return cached.token;
+  const authHeader=Buffer.from(id+':'+secret).toString('base64');
+  const response=await fetch(auth,{method:'POST',headers:{Authorization:'Basic '+authHeader,'Content-Type':'application/x-www-form-urlencoded',Accept:'application/json'},body:'grant_type=client_credentials',signal:AbortSignal.timeout(12000)});
+  if(!response.ok)throw Error(response.status===401||response.status===403?'FAA NMS authentication rejected the client Key/Secret.':`FAA NMS authentication returned HTTP ${response.status}.`);
+  const result=await response.json();
+  const token=result.access_token||result.accessToken;
+  if(typeof token!=='string'||!token)throw Error('FAA NMS authentication returned no access token.');
+  const seconds=Math.max(60,Math.min(86400,Number(result.expires_in)||1800));
+  nmsTokenCache.set(key,{token,until:Date.now()+seconds*1000});return token;
+}
+function extractNmsNotams(payload,airport){
+  // GeoJSON feature collection is documented, but the exact feature property schema is
+  // not included in the provided SoapUI file. Prefer unmodified source text; never invent.
+  const input=Array.isArray(payload)?payload:
+    payload?.type==='FeatureCollection'&&Array.isArray(payload.features)?payload.features:
+    Array.isArray(payload?.features)?payload.features:
+    Array.isArray(payload?.notams)?payload.notams:
+    Array.isArray(payload?.results)?payload.results:null;
+  if(input===null)return null;
+  return input.slice(0,250).map((entry,index)=>{
+    const p=entry?.properties&&typeof entry.properties==='object'?entry.properties:entry;
+    const get=(...keys)=>keys.map(k=>p?.[k]).find(v=>typeof v==='string'&&v.trim());
+    const raw=get('traditionalMessage','traditionalText','notamText','notam','text','message','rawText','description','rawOb')||'';
+    const serial=get('notamNumber','number','notamId','id')||String(entry?.id||'NOTAM '+(index+1));
+    const location=get('location','locationId','airport','icao')||airport;
+    const category=get('feature','classification','category','type')||'NOTAM';
+    return {number:String(serial).slice(0,160),category:String(category).slice(0,100),categoryCode:'OTHER',text:raw||JSON.stringify(p).slice(0,4000),reading:raw||'Source properties shown below; consult original NOTAM for interpretation.',start:get('effectiveStartDate','effectiveStart','startDate','validFrom')||null,end:get('effectiveEndDate','effectiveEnd','endDate','validTo')||null,isTfr:false,location:String(location),status:'unverified',rawProperties:p};
+  });
+}
+
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml'};
 const server=http.createServer(async(req,res)=>{
   try{
@@ -99,30 +135,44 @@ const server=http.createServer(async(req,res)=>{
     }
     if(u.pathname==='/api/notams'){
       const airport=(u.searchParams.get('airport')||'').trim().toUpperCase();
-      const page=Number(u.searchParams.get('page')||'1');
-      if(!/^[A-Z0-9]{3,4}$/.test(airport)||!Number.isInteger(page)||page<1||page>10){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Invalid airport or page.'}));return;}
-      const token=process.env.NOTAC_API_KEY;
-      if(!token){res.writeHead(503,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({configured:false,error:'Live NOTAM data access is not yet configured. Set NOTAC_API_KEY in Render environment variables.'}));return;}
-      const query=new URL('https://notac.aero/api/v1/notam/');query.searchParams.set('location',airport);query.searchParams.set('status','active');query.searchParams.set('sort','priority');query.searchParams.set('page',String(page));
-      const cacheKey=query.toString();const cached=cache.get(cacheKey);
-      let payload;
-      if(cached&&Date.now()-cached.at<120000)payload=cached.value;
-      else{
-        const upstreamResponse=await fetch(query,{headers:{Authorization:`Bearer ${token}`,'Accept':'application/json','User-Agent':'WeatherCommandDashboard/1.6 (personal aviation weather)'},signal:AbortSignal.timeout(12000)});
-        if(!upstreamResponse.ok){
-          const reason=upstreamResponse.status===401||upstreamResponse.status===403?'NOTAM provider rejected the configured API credential.':upstreamResponse.status===429?'NOTAM provider rate limit reached.':`NOTAM provider returned ${upstreamResponse.status}.`;
-          res.writeHead(502,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({configured:true,error:reason}));return;
-        }
-        payload=await upstreamResponse.json();cache.set(cacheKey,{at:Date.now(),value:payload});
+      if(!/^[A-Z0-9]{3,4}$/.test(airport)){
+        res.writeHead(400,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:'Enter a 3- or 4-character airport identifier.'}));return;
       }
-      if(!Array.isArray(payload?.results))throw Error('Invalid NOTAM provider response');
-      const records=payload.results.slice(0,20).map(n=>({
-        number:String(n.number||''),category:String(n.category?.label||n.category?.code||'Other'),categoryCode:String(n.category?.code||'OTHER'),
-        text:String(n.text||''),reading:String(n.readings?.[0]?.short||''),start:n.effective_start||null,end:n.effective_end||null,
-        isTfr:!!n.is_tfr,location:String(n.location_code||airport),status:String(n.status||'active')
-      }));
-      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-      res.end(JSON.stringify({configured:true,airport,notams:records,total:Number(payload.count)||0,hasMore:!!payload.next,page,source:'NOTAC (FAA-derived)',checkedAt:new Date().toISOString()}));return;
+      const clientId=process.env.NMS_API_CLIENT_ID;
+      const clientSecret=process.env.NMS_API_CLIENT_SECRET;
+      const env=(process.env.NMS_API_ENV||'test').toLowerCase();
+      if(!['test','production'].includes(env)){
+        res.writeHead(503,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:'NMS_API_ENV must be test or production.'}));return;
+      }
+      if(!clientId||!clientSecret){
+        res.writeHead(503,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({configured:false,error:'FAA NMS access is not configured. Set NMS_API_CLIENT_ID and NMS_API_CLIENT_SECRET in Render.'}));return;
+      }
+      if(env==='production' && (!process.env.NMS_API_BASE_URL || !process.env.NMS_AUTH_URL)){
+        res.writeHead(503,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:'Production NMS requires provider-confirmed NMS_API_BASE_URL and NMS_AUTH_URL.'}));return;
+      }
+      // Pre-production URLs are confirmed by the supplied FAA SoapUI configuration.
+      const base=process.env.NMS_API_BASE_URL||(env==='test'?'https://api-staging.cgifederal-aim.com/nmsapi':'');
+      const auth=process.env.NMS_AUTH_URL||(env==='test'?'https://api-staging.cgifederal-aim.com/v1/auth/token':'');
+      try{
+        if(!isSecureNmsEndpoint(base)||!isSecureNmsEndpoint(auth))throw Error('Invalid NMS endpoint configuration (HTTPS required).');
+        const accessToken=await nmsAccessToken(auth,clientId,clientSecret);
+        // Preserve the API's base path if supplied as the documented /nmsapi root.
+        const prefix=base.replace(/\/$/,'');
+        const endpoint=new URL(prefix+'/v1/notams');endpoint.searchParams.set('location',airport);
+        const resp=await fetch(endpoint,{headers:{Authorization:'Bearer '+accessToken,nmsResponseFormat:'GEOJSON',Accept:'application/json'},signal:AbortSignal.timeout(12000)});
+        if(!resp.ok){
+          const message=resp.status===401||resp.status===403?'FAA NMS rejected the access token. Confirm the key/secret and environment.':`FAA NMS returned HTTP ${resp.status}.`;
+          res.writeHead(502,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({configured:true,error:message}));return;
+        }
+        const data=await resp.json();
+        const records=extractNmsNotams(data,airport);
+        if(records===null)throw Error('NMS returned a response format not yet recognized. No NOTAMs have been assumed.');
+        res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
+        res.end(JSON.stringify({configured:true,airport,notams:records,total:records.length,hasMore:false,page:1,source:env==='test'?'FAA NMS PRE-PRODUCTION (TEST ONLY)':'FAA NMS',environment:env,checkedAt:new Date().toISOString()}));return;
+      }catch(e){
+        const message=e.name==='TimeoutError'?'NMS request timed out.':e.message;
+        res.writeHead(502,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({configured:true,error:message}));return;
+      }
     }
     if(u.pathname==='/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({status:'ok'}));return;}
     if(u.pathname==='/api/winds-aloft'){

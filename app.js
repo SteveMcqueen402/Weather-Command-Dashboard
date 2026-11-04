@@ -312,17 +312,18 @@ async function loadNotams(page=1){
  showNotamStatus('Loading '+airport+' NOTAMs…');
  $('#notam-more').disabled=true;
  try{
-   const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),13000);let data;try{const response=await fetch('/api/notams?airport='+encodeURIComponent(airport)+'&page='+page,{signal:controller.signal,cache:'no-store'});data=await response.json().catch(()=>({error:'Invalid NOTAM service response'}));if(!response.ok)throw Error(data.error||'NOTAM service returned HTTP '+response.status);}finally{clearTimeout(timer);}
+   const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),30000);let data;try{const response=await fetch('/api/notams?airport='+encodeURIComponent(airport)+'&page='+page,{signal:controller.signal,cache:'no-store'});data=await response.json().catch(()=>({error:'Invalid NOTAM service response'}));if(!response.ok)throw Error(data.error||'NOTAM service returned HTTP '+response.status);}finally{clearTimeout(timer);}
    if(current.homeId!==airport)return;
    notamPage=page;notamNotices=notamNotices.concat(data.notams||[]);notamHasMore=!!data.hasMore;notamTotal=data.total;
    notamLastCheck=data.checkedAt;text('#notam-checked','Checked '+dateTime(data.checkedAt));
-   text('#notam-home-id',String(data.total));text('#notam-summary',airport+' · reported active notices');
-   showNotamStatus(data.total===0?'Provider reported no active notices for '+airport+'.':'Active NOTAMs for '+airport+' · '+data.source);
+   const testing=data.environment==='test';
+   text('#notam-home-id',testing?'TEST':String(data.total));text('#notam-summary',airport+(testing?' · TEST DATA — NOT FOR FLIGHT USE':' · reported NOTAMs'));
+   showNotamStatus(testing?'FAA NMS PRE-PRODUCTION / TEST DATA. NOT VALID FOR FLIGHT PLANNING.':data.total===0?'Provider returned no notices for '+airport+'.':'FAA NMS notices for '+airport);
    renderNotams();
  }catch(err){
    if(current.homeId!==airport)return;
    if(page===1){notamNotices=[];notamHasMore=false;notamTotal=0;$('#notam-list').replaceChildren();text('#notam-home-id',airport);text('#notam-summary','NOTAM feed unavailable')}
-   showNotamStatus((err.name==='AbortError'?'NOTAM provider timed out after 13 seconds.':err.message)+' No notices are being represented as current.');
+   showNotamStatus((err.name==='AbortError'?'FAA NMS request timed out after 30 seconds.':err.message)+' No notices are being represented as current.');
    text('#notam-count-detail','Data unavailable');
  }finally{$('#notam-more').disabled=false}
 }
