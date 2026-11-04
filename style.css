@@ -179,3 +179,233 @@ footer{padding-top:10px}
  #model-section .model-links strong{font-size:11px}
  #model-section .fine{margin:5px 0 0}
 }
+
+
+/* v1.0 Approved mockup color treatment — strong contrast, midnight/cyan instrument panel */
+:root {
+ --cmd-bg:#030911;
+ --cmd-header:#01060c;
+ --cmd-panel:#0a1928;
+ --cmd-panel-2:#0d2235;
+ --cmd-inset:#071524;
+ --cmd-border:#3a617f;
+ --cmd-border-soft:#26435b;
+ --cmd-text:#f4faff;
+ --cmd-secondary:#9cc4dc;
+ --cmd-cyan:#63d7ff;
+ --cmd-blue:#1371ba;
+ --cmd-blue-bright:#1b86d0;
+ --cmd-vfr:#36e989;
+ --cmd-mvfr:#74b1ff;
+ --cmd-ifr:#ff6976;
+ --cmd-lifr:#de95ff;
+ color-scheme:dark;
+ background:var(--cmd-bg);
+ color:var(--cmd-text);
+}
+html,body{background:var(--cmd-bg);color:var(--cmd-text)}
+.top{background:linear-gradient(180deg,#030810 0%,#07121d 100%);border-bottom:1px solid #3a647d;box-shadow:0 2px 12px #0008}
+.identity strong{color:#f7fbff;text-shadow:0 1px 2px #0009;font-weight:900}
+.identity span{color:var(--cmd-cyan);font-weight:800;text-shadow:0 0 11px #1bc4fa44}
+.identity .aircraft{color:#f7fbff}
+.topnav button{color:#d4e6f6;transition:background .12s ease,color .12s ease}
+.topnav button:hover{background:#17364f;color:#fff}
+.topnav button.active{color:#fff;background:linear-gradient(180deg,#216baf 0%,#0d4b7a 100%);box-shadow:inset 0 1px 0 #74c4f777,0 0 18px #1669ba25;border-bottom:3px solid #65d8ff}
+.topright{color:#a9d8f0}
+.topright button,.chevron,.outline,.map-left button{background:#0f3049;border:1px solid #4983ad;color:#d2f1ff}
+.topright button:hover,.chevron:hover,.outline:hover,.map-left button:hover{background:#174e76;color:white}
+main{background:var(--cmd-bg)}
+.location,.clock{background:#071727;border:1px solid var(--cmd-border);color:#f1f8ff}
+.location small{color:#9ecce8}
+.locdot{color:#ffd65d}
+.locationbar input,.routefields input,.via input,select{background:#061422;border:1px solid #43677e;color:#f0f7ff;box-shadow:inset 0 1px 2px #0007}
+.locationbar input::placeholder,.routefields input::placeholder,.via input::placeholder{color:#7898af}
+.locationbar form button,.primary{background:linear-gradient(180deg,#2089cf,#1369a4);border:1px solid #4ab5fa;color:#fff;box-shadow:inset 0 1px 0 #ffffff22}
+.locationbar form button:hover,.primary:hover{background:#2194e1}
+.stat,.panel{background:linear-gradient(135deg,#0b1928 0%,#0d2033 100%);border:1px solid var(--cmd-border);box-shadow:inset 0 1px 0 #ffffff06,0 4px 16px #0004}
+.stat:hover,.panel:focus-within{border-color:#6ba0c4}
+.stathead{color:#8edaff;font-weight:800}
+.stathead span:last-child{color:#b7eaff}
+.statvalue{color:#f8fbff;text-shadow:0 1px 2px #0009}
+.stat small{color:#b6cde2}
+.alert-stat{background:linear-gradient(110deg,#101c2b,#121c2c)}
+.alert-stat .stathead{color:#ff8d98}
+.alert-stat #alerts-count{color:var(--cmd-ifr)}
+#flightcat.VFR,.category.VFR{color:var(--cmd-vfr)}
+#flightcat.MVFR,.category.MVFR{color:var(--cmd-mvfr)}
+#flightcat.IFR,.category.IFR{color:var(--cmd-ifr)}
+#flightcat.LIFR,.category.LIFR{color:var(--cmd-lifr)}
+.panelhead{border-bottom-color:#2d526d}
+.panelhead h2{color:#f3f9ff;letter-spacing:.25px}
+.pillrow{border-bottom-color:#30516d}
+.pill{color:#c5deef}
+.pill.active,.tab.active{background:linear-gradient(180deg,#1f80c5,#105b93);color:#fff;border-color:#53b8fc;box-shadow:inset 0 1px 0 #ffffff30}
+.tab{background:#0d2a40;border-color:#315a7a;color:#c7e2f5}
+.tab:hover,.pill:hover{background:#16456b;color:white}
+.aviation-body pre,.route-numbers>div,.altitude,.day,.decoded div,.wind-row:nth-child(even){background:#09253a;color:#e1f2ff}
+.altitude span:last-child,.fine,.subtle{color:#9cbed7}
+.map-area,.route-weather-map{background:#071725;border-color:#416b89}
+.map-control,#map-caption{color:#a8d1e8}
+.route-current,.route-map-message{background:#0b2b42;color:#d9efff}
+.route-edit-trigger{background:#0c2840;border-color:#3e6684;color:#91dcff}
+.route-edit-trigger:hover{background:#164466}
+.route-numbers strong{color:#f7fcff}
+.route-numbers small{color:#a2c8e1}
+.route-map-legend{color:#c1d9e9}
+.route-weather,.forecast-days,.model-links{color:#d8ebfa}
+.model-art{border:1px solid #3e6d8b;box-shadow:inset 0 0 30px #52caff12}
+.quicklinks button{background:linear-gradient(180deg,#10253a,#09192b);border:1px solid #45748f;box-shadow:inset 0 1px 0 #ffffff12,0 4px 13px #0006;color:#84dfff;transition:transform .14s ease,background .14s ease}
+.quicklinks button:hover{background:#153f5d;border-color:#61cbff;transform:translateY(-2px)}
+.quicklinks span{color:#f5faff;font-weight:650}
+.modal{background:#000d}
+.modal-card{background:#0a1d2f;border:1px solid #70b4df;box-shadow:0 20px 80px #000d}
+.modal-head{background:#0d2941;border-color:#4a7899}
+.modal-head h2{color:#fff}
+.modal-head button{background:#18476b;border-color:#66a4c9;color:#fff}
+.notice{background:#372316;color:#ffdab3;border:1px solid #9b7144}
+.alert{background:#15243a;border-left-color:#ffbd61}
+.alert strong{color:#ffe1ac}
+a,.panel-link{color:#78ccff}
+a:hover{color:#b6e8ff}
+footer{color:#89adca}
+@media(max-width:600px){.topnav button.active{box-shadow:none}.stathead{font-size:10px}.statvalue{font-size:24px}}
+
+
+/* v1.1 — True black canvas, charcoal instruments, high-visibility information */
+:root{
+ --cmd-bg:#000000;
+ --cmd-header:#000000;
+ --cmd-panel:#151a22;
+ --cmd-panel-2:#1b2430;
+ --cmd-inset:#0d121a;
+ --cmd-border:#435367;
+ --cmd-border-soft:#303d4e;
+ --cmd-text:#ffffff;
+ --cmd-secondary:#c6d5e4;
+ --cmd-cyan:#52e4ff;
+ --cmd-blue:#1788e5;
+ --cmd-blue-bright:#21a5ff;
+ --cmd-vfr:#52f596;
+ --cmd-mvfr:#82bcff;
+ --cmd-ifr:#ff697b;
+ --cmd-lifr:#e2a2ff;
+ background:#000;color:#fff;
+}
+html,body,main{background:#000!important;color:#fff}
+.top{background:#030406!important;border-bottom:1px solid #354456;box-shadow:0 2px 16px #000}
+.identity strong{color:#fff}.identity span{color:#52e4ff}.identity .aircraft{color:#fff}
+.topnav button{color:#dceeff}.topnav button:hover{background:#162c41}
+.topnav button.active{background:linear-gradient(180deg,#188de6,#075b99)!important;border-bottom:3px solid #53e0ff}
+.location,.clock{background:#111720!important;border:1px solid #455b70;color:#fff}
+.locationbar input,.routefields input,.via input,select{background:#090e15!important;border-color:#506982;color:#f8fdff}
+.locationbar input::placeholder,.routefields input::placeholder,.via input::placeholder{color:#a2b7c8}
+.locationbar form button,.primary{background:linear-gradient(180deg,#209ded,#0867ba);border-color:#67caff}
+.stat,.panel{background:#171d26!important;border:1px solid #445b72!important;box-shadow:inset 0 1px 0 #ffffff12,0 4px 16px #0009}
+.stat:nth-child(2),.stat:nth-child(3){background:#1a2230!important}
+.stat.alert-stat{background:#201b23!important;border-color:#6d4955!important}
+.stathead{color:#8ce7ff}.statvalue{color:#fff;font-weight:850}
+.stat small{color:#d1dfed}
+.alert-stat .stathead{color:#ff9aa5}.alert-stat #alerts-count{color:#ff7e90}
+.panelhead{border-color:#43576b}.panelhead h2{color:#fff}
+.pill,.tab{background:#172a3a;color:#d5ecff;border-color:#446780}
+.pill.active,.tab.active{background:linear-gradient(180deg,#238fe2,#0963a6)!important;color:#fff}
+.aviation-body pre,.route-numbers>div,.altitude,.day,.decoded div,.wind-row:nth-child(even){background:#101f2c!important;color:#f1fbff}
+.decoded strong,.wind-row strong{color:#8feaff}
+.fine,.subtle,.altitude span:last-child{color:#b6cee2}
+.map-area,.route-weather-map{background:#0c1420;border-color:#566b80}
+.map-control,#map-caption{color:#c4e4f6}
+.route-current,.route-map-message{background:#132a3c;color:#eefaff}
+.route-edit-trigger{background:#102336;border-color:#4c7798;color:#78e7ff}
+.route-numbers strong{color:#fff}
+.route-numbers small{color:#b5d9f1}
+.route-map-legend{color:#e2effb}
+.model-art{border-color:#52708b}
+.quicklinks button{background:linear-gradient(180deg,#1c2937,#131b25)!important;border:1px solid #597187;color:#66e6ff;box-shadow:inset 0 1px 0 #ffffff14}
+.quicklinks button:hover{background:#223b50!important;border-color:#58d8ff}
+.quicklinks span{color:#fff}
+.modal-card{background:#171d26;border-color:#77b7e9}
+.modal-head{background:#1c2b3d;border-color:#476983}
+.modal-head button{background:#1b496a}
+.alert{background:#28222b;color:#f4e9f0;border-left-color:#ffbc60}
+.alert strong{color:#ffe39b}
+#flightcat.VFR,.category.VFR{color:#52f596!important}
+#flightcat.MVFR,.category.MVFR{color:#82bcff!important}
+#flightcat.IFR,.category.IFR{color:#ff697b!important}
+#flightcat.LIFR,.category.LIFR{color:#e2a2ff!important}
+a,.panel-link{color:#79d9ff}a:hover{color:#bcefff}
+footer{color:#b3c5d5}
+
+/* v1.2: black + high-contrast multicolor instrumentation */
+:root{background:#000!important;color:#f8faff!important;color-scheme:dark;--accent-blue:#4bbaff;--accent-green:#36f3a4;--accent-orange:#ffae42;--accent-pink:#ff6bb6;--accent-red:#ff506a;--accent-cyan:#54e5ff}
+html,body{background:#000!important;color:#f8faff}
+.top{background:#080a0e!important;border-bottom:1px solid #364454!important}
+main{background:#000!important}
+.stat,.panel{background:#171c24!important;border:1px solid #3d4c60!important;box-shadow:0 6px 22px #0008!important}
+.panelhead{border-bottom-color:#384357!important}
+.panelhead h2,.identity strong{color:#fff!important}
+.identity span,.eyebrow{color:#59dfff!important}
+.stat{border-top:3px solid var(--accent-blue)!important}
+.stat:nth-child(1){border-top-color:var(--accent-orange)!important}
+.stat:nth-child(1) .statvalue{color:var(--accent-orange)!important}
+.stat:nth-child(2){border-top-color:var(--accent-green)!important}
+.stat:nth-child(2) .statvalue{color:var(--accent-green)!important}
+.stat:nth-child(3){border-top-color:var(--accent-blue)!important}
+.stat:nth-child(3) .statvalue{color:var(--accent-green)}
+.stat:nth-child(4){border-top-color:var(--accent-pink)!important}
+.stat:nth-child(4) .statvalue{color:var(--accent-orange)!important}
+.stathead{color:#e1edff!important}
+.stathead span:last-child{color:var(--accent-cyan)}
+.topnav button.active,.pill.active,.tab.active{background:#125d9e!important;color:#fff!important;border-bottom-color:var(--accent-cyan)!important}
+.topnav button:hover,.tab:hover,.pill:hover{color:#fff;background:#183650}
+.primary,.locationbar form button{background:#1471ba!important;border-color:#37c8ff!important}
+.primary:hover,.locationbar form button:hover{background:#188dd6!important}
+.pill,.tab,.route-edit-trigger,.outline{color:#a8e3ff!important}
+.wind-row,.altitude{border-bottom-color:#40506b}
+.category.VFR,.dot.vfr{color:var(--accent-green)!important}
+.category.MVFR,.dot.mvfr{color:var(--accent-blue)!important}
+.category.IFR,.dot.ifr{color:var(--accent-red)!important}
+.category.LIFR,.dot.lifr{color:var(--accent-pink)!important}
+.alert-stat .stathead,.alerts-list strong{color:var(--accent-orange)!important}
+.alert{border-left-color:var(--accent-orange)!important;background:#292321!important}
+.panel-link,.quicklinks span,.modal-head a{color:var(--accent-cyan)!important}
+.quicklinks button{background:#161c27!important;border-color:#435b72!important}
+.quicklinks button:nth-child(4n+1){color:var(--accent-green)!important}
+.quicklinks button:nth-child(4n+2){color:var(--accent-blue)!important}
+.quicklinks button:nth-child(4n+3){color:var(--accent-orange)!important}
+.quicklinks button:nth-child(4n+4){color:var(--accent-pink)!important}
+.route-current{background:#101d2a!important}
+.route-arrow{color:var(--accent-cyan)!important}
+.model-art{border:1px solid #41677a}
+.map-area,.route-weather-map{border-color:#526078!important}
+.modal-card{background:#181e27!important;border-color:#5c86a6!important}
+input,select{background:#0b111b!important;color:#fff!important;border-color:#46607c!important}
+:focus-visible{outline:2px solid #ffbc61!important;outline-offset:2px}
+/* Personalization: default layout unchanged until the user enables custom arrangement */
+.personalize{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;color:#c3d8ee}
+.personalize-label{font-size:10px;font-weight:850;letter-spacing:1.5px;color:var(--accent-pink)}
+#layout-state{font-size:11px;color:#b9cae2;margin-right:auto}
+#layout-toggle,#layout-reset{border:1px solid #4a6885;border-radius:6px;background:#162638;color:#eaf6ff;font-weight:700;padding:8px 12px;font-size:12px}
+#layout-toggle{background:#0b5384;border-color:#37a0dd}
+#layout-toggle[aria-pressed=true]{background:#125a3e;border-color:#31ce8e}
+#layout-reset{background:#1c2029}
+.custom-board{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px;align-items:start;margin:0 0 12px}
+.custom-board>.panel{grid-column:span 4;min-width:0;position:relative}
+.custom-board>.panel[data-span="3"]{grid-column:span 3}
+.custom-board>.panel[data-span="4"]{grid-column:span 4}
+.custom-board>.panel[data-span="6"]{grid-column:span 6}
+.custom-board>.panel[data-span="8"]{grid-column:span 8}
+.custom-board>.panel[data-span="12"]{grid-column:span 12}
+.custom-board>.map-panel .map-area{height:340px;min-height:340px}
+.custom-board>.panel[data-span="8"].map-panel .map-area,.custom-board>.panel[data-span="12"].map-panel .map-area{height:470px}
+.custom-board .route-weather-map{height:245px}
+.layout-editing .custom-board>.panel{border:1px dashed #5bbce9!important}
+.layout-editing .custom-board>.panel.dragging{opacity:.42}
+.layout-editing .custom-board>.panel.drop-target{outline:3px solid var(--accent-orange);outline-offset:3px}
+.layout-controls{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;margin:0 0 12px;padding:6px 8px;background:#0c2638;border:1px solid #3d7193;border-radius:6px}
+.layout-controls .drag-handle{font-size:11px;color:#93e5ff;cursor:grab;font-weight:750}
+.layout-controls .layout-tools{display:flex;gap:4px;align-items:center}
+.layout-tools button,.layout-tools select{padding:4px 6px;border-radius:4px;background:#1c3449!important;color:white;border:1px solid #517796!important;font-size:11px;width:auto;cursor:pointer}
+.layout-tools select{max-width:92px}
+.layout-instruction{font-size:11px;color:#fecb8e;margin:0 0 10px}
+@media(max-width:1100px){.custom-board>.panel,.custom-board>.panel[data-span]{grid-column:span 6}}
+@media(max-width:680px){.custom-board>.panel,.custom-board>.panel[data-span]{grid-column:span 12}.personalize-label{width:100%}.custom-board>.map-panel .map-area{min-height:320px;height:320px}.custom-board>.panel[data-span="8"].map-panel .map-area{height:320px}}

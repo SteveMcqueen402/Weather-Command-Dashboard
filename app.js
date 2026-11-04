@@ -201,3 +201,61 @@ if(routeToggle&&routeEditor){
    document.getElementById('route-current-to').textContent=document.getElementById('quick-to').value.trim().toUpperCase()||'Enter destination';
  });
 }
+
+
+// v1.2 dashboard layout arranger: moves existing live panels without recreating their content.
+// Preferences stay in this browser's localStorage. No account or API key required.
+(function configurePanelLayout(){
+ const board=document.getElementById('custom-board'),toggle=document.getElementById('layout-toggle'),reset=document.getElementById('layout-reset');
+ if(!board||!toggle||!reset)return;
+ const ids=['airport-section','wind-section','charts-section','route-section','route-weather-panel','forecast-section','model-section','surface-panel','convective-panel','alert-section'];
+ const nodes=ids.map(id=>document.getElementById(id)).filter(Boolean);
+ const homes=new Map(nodes.map(node=>[node.id,{parent:node.parentElement,index:[...node.parentElement.children].indexOf(node)}]));
+ const key='weather-command-layout-v12';
+ const defaults={'charts-section':8,'airport-section':4,'wind-section':4,'route-section':4,'route-weather-panel':4,'forecast-section':4,'model-section':4,'surface-panel':4,'convective-panel':4,'alert-section':4};
+ let customizing=false,active=false,dragged=null;
+ function resizeMaps(){requestAnimationFrame(()=>setTimeout(()=>{
+   try{current.map?.invalidateSize()}catch{}
+   try{current.routeWeatherMap?.invalidateSize()}catch{}
+ },110))}
+ function save(){if(!active)return;try{localStorage.setItem(key,JSON.stringify({order:[...board.children].filter(el=>el.classList.contains('panel')).map(el=>el.id),sizes:Object.fromEntries(nodes.map(n=>[n.id,Number(n.dataset.span)||4]))}))}catch{}}
+ function controls(node){let bar=node.querySelector(':scope > .layout-controls');if(bar)return bar;
+   bar=document.createElement('div');bar.className='layout-controls';bar.hidden=true;
+   const handle=document.createElement('span');handle.className='drag-handle';handle.textContent='⠿ Drag panel';handle.setAttribute('aria-label','Drag '+node.id);
+   const group=document.createElement('span');group.className='layout-tools';
+   const up=document.createElement('button');up.type='button';up.textContent='←';up.title='Move panel earlier';up.setAttribute('aria-label','Move '+node.id+' earlier');
+   const down=document.createElement('button');down.type='button';down.textContent='→';down.title='Move panel later';down.setAttribute('aria-label','Move '+node.id+' later');
+   const select=document.createElement('select');select.setAttribute('aria-label','Panel width for '+node.id);
+   for(const [label,n] of [['Small',3],['Medium',4],['Wide',6],['Extra wide',8],['Full width',12]]){const opt=document.createElement('option');opt.value=n;opt.textContent=label;select.append(opt)}
+   select.value=String(Number(node.dataset.span)||defaults[node.id]||4);
+   select.addEventListener('change',()=>{node.dataset.span=select.value;save();resizeMaps()});
+   up.onclick=()=>{const prev=node.previousElementSibling;if(prev&&prev.classList.contains('panel'))board.insertBefore(node,prev);save();resizeMaps()};
+   down.onclick=()=>{const next=node.nextElementSibling;if(next&&next.classList.contains('panel'))board.insertBefore(next,node);save();resizeMaps()};
+   group.append(up,down,select);bar.append(handle,group);node.insertBefore(bar,node.firstChild);
+   handle.draggable=true;
+   handle.addEventListener('dragstart',e=>{if(!customizing){e.preventDefault();return}dragged=node;node.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',node.id)});
+   handle.addEventListener('dragend',()=>{node.classList.remove('dragging');dragged=null;nodes.forEach(n=>n.classList.remove('drop-target'))});
+   node.addEventListener('dragover',e=>{if(!customizing||!dragged||dragged===node)return;e.preventDefault();node.classList.add('drop-target')});
+   node.addEventListener('dragleave',()=>node.classList.remove('drop-target'));
+   node.addEventListener('drop',e=>{if(!customizing||!dragged||dragged===node)return;e.preventDefault();node.classList.remove('drop-target');const rect=node.getBoundingClientRect();if(e.clientY>rect.top+rect.height/2)node.after(dragged);else node.before(dragged);save();resizeMaps()});
+   return bar;
+ }
+ function setEditing(value){customizing=value;document.body.classList.toggle('layout-editing',value);toggle.setAttribute('aria-pressed',String(value));toggle.textContent=value?'Done Arranging':'Arrange Panels';
+   nodes.forEach(n=>{const bar=controls(n);bar.hidden=!value});
+   if(active)document.getElementById('layout-state').textContent=value?'Drag panels or use arrows and width menus':'Custom layout saved on this device';
+ }
+ function custom(data){active=true;board.classList.remove('hidden');
+   const order=Array.isArray(data?.order)?data.order:ids;
+   const arranged=[...new Set(order.concat(ids))].map(id=>document.getElementById(id)).filter(n=>nodes.includes(n));
+   arranged.forEach(node=>{node.dataset.span=String([3,4,6,8,12].includes(Number(data?.sizes?.[node.id]))?Number(data.sizes[node.id]):defaults[node.id]||4);board.append(node)});
+   document.getElementById('layout-state').textContent='Custom layout saved on this device';resizeMaps();
+ }
+ toggle.onclick=()=>{if(!active)custom(null);setEditing(!customizing);save()};
+ reset.onclick=()=>{if(!confirm('Restore the original panel arrangement and sizes on this device?'))return;
+   setEditing(false);nodes.forEach(n=>{const bar=n.querySelector(':scope > .layout-controls');bar?.remove();n.removeAttribute('data-span')});
+   const parents=[...new Set(nodes.map(n=>homes.get(n.id).parent))];
+   for(const parent of parents){nodes.filter(n=>homes.get(n.id).parent===parent).sort((a,b)=>homes.get(a.id).index-homes.get(b.id).index).forEach(n=>parent.append(n))}
+   board.classList.add('hidden');active=false;document.getElementById('layout-state').textContent='Default layout';try{localStorage.removeItem(key)}catch{}resizeMaps();
+ };
+ try{const saved=JSON.parse(localStorage.getItem(key)||'null');if(saved&&Array.isArray(saved.order)){custom(saved);setEditing(false)}}catch{}
+})();

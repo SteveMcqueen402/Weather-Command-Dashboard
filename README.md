@@ -82,3 +82,23 @@ Run `WCD_WIND_TEST=1 node server.mjs` to validate the wind table decoder fixture
 - Route editor collapses to keep primary route summary visible like approved reference; all existing route fields remain available through Edit route.
 - Removed duplicate bottom chart thumbnails on desktop; surface and convective views remain reachable through center map tabs and shortcuts. On narrow screens chart tiles remain available.
 - No sample/mock weather values are ever populated as live data.
+
+## v1.0 — Color update for approved mockup
+The dark navy base remains, with much darker black header and background, stronger cyan/blue highlights, brighter text and borders, high-contrast panel tabs, and improved VFR/MVFR/IFR/LIFR status colors. No demo weather readings have been substituted for live data. Functionality is otherwise retained from v0.9.
+
+## v1.1 True Black / High Visibility
+
+- True #000000 page background and nearly black navigation.
+- Lighter charcoal instrument tiles and cards, with vivid cyan headings, bright white readouts, strong blue selected tabs, and high-contrast flight category colors.
+- No functional JavaScript, backend, route, forecast, or aviation logic has been changed by this release.
+- Cache-busted CSS and JS version URLs for updated styling to appear after Render deploy.
+
+
+## v1.2 — high contrast multicolor + dashboard arrangement
+- Black background, charcoal panels; blue, green, orange, pink, and red functional accent colors.
+- **Arrange Panels** turns the weather panels into an adjustable 12-column dashboard. Drag by the handle (desktop), or use the left/right reorder controls (mobile and keyboard).
+- Panel width options: small, medium, wide, extra wide, full width.
+- **Done Arranging** saves order and widths in the current browser's localStorage.
+- **Reset Layout** restores the original dashboard and clears that browser's saved layout.
+- Layout preferences do not sync between devices; each browser keeps its own.
+- Existing weather feeds, charts, route planning logic, and radar are retained. No new weather API integrations were added in this style/layout release.
