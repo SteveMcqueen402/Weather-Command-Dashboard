@@ -102,3 +102,9 @@ The dark navy base remains, with much darker black header and background, strong
 - **Reset Layout** restores the original dashboard and clears that browser's saved layout.
 - Layout preferences do not sync between devices; each browser keeps its own.
 - Existing weather feeds, charts, route planning logic, and radar are retained. No new weather API integrations were added in this style/layout release.
+
+## v1.3 — selectable home airport, basemap picker and flexible arrangement
+- Set home airport by airport identifier (requires airport coordinates available from Aviation Weather Center). Saved per browser. Changes main METAR/TAF, local NWS forecast, local point alerts, main map center and route departure default.
+- Choose FAA VFR Sectional, Street Map or Satellite from the dashboard. Choice propagates to the route map and enlarged maps. FAA's sectional tile service can have limited chart/zoom coverage and may lag the latest chart edition; always verify effective chart date and NOTAMs.
+- Arrange panels in 12-column increments from 2 to 12 columns; reorder with drag handle, position menu or arrows; set minimum panel height 160–850 px. Persisted locally. Existing v1.2 layout preference is imported when present.
+- Controls do not sync between devices. Official weather and charts remain essential for flight planning; no operational routing or complete briefing capability.

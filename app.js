@@ -4,6 +4,23 @@ const text=(s,v)=>{const el=$(s);if(el)el.textContent=String(v??'—')};
 const htmlEscape=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const current={metar:null,taf:null,radar:null,alerts:[],forecast:null,route:[],selected:'KOMA',map:null,mapLayer:null,routeLayer:null,radarFrame:0,radarPlaying:false,radarTimer:null,modalMap:null,routeWeatherMap:null,routeWeatherLayer:null,routeRadarLayer:null,routeRadarOn:true,modalRouteLayer:null,modalRouteRadarLayer:null};
 const KOMA=[41.301,-95.894];
+const readPref=(key,fallback)=>{try{return localStorage.getItem(key)||fallback}catch{return fallback}};
+const writePref=(key,value)=>{try{localStorage.setItem(key,value)}catch{}};
+current.homeId=readPref('wc-home-airport-v13','KOMA');
+current.homeCoords=(()=>{try{const v=JSON.parse(readPref('wc-home-coords-v13','null'));return Array.isArray(v)&&v.length===2&&v.every(Number.isFinite)?v:KOMA}catch{return KOMA}})();
+current.mapStyle=readPref('wc-map-style-v13','sectional');
+const homeCoords=()=>current.homeCoords||KOMA;
+const mapsRegistry=new Set();
+function createBaseLayer(kind){
+ if(kind==='sectional')return L.tileLayer('https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/VFR_Sectional/MapServer/tile/{z}/{y}/{x}',{attribution:'VFR chart © FAA Aeronautical Information Services',minNativeZoom:8,maxNativeZoom:12,maxZoom:17});
+ if(kind==='satellite')return L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Imagery © Esri and providers',maxZoom:18});
+ return L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxZoom:19});
+}
+function changeBaseLayers(){
+ for(const m of [...mapsRegistry]){if(!m._container){mapsRegistry.delete(m);continue}try{if(m.wcBaseLayer)m.removeLayer(m.wcBaseLayer);m.wcBaseLayer=createBaseLayer(current.mapStyle).addTo(m);m.wcBaseLayer.bringToBack();m.invalidateSize()}catch(e){console.warn('Map layer unavailable',e)}}
+ text('#map-style-note',current.mapStyle==='sectional'?'FAA sectional • verify current edition; best at zoom 8–12':current.mapStyle==='satellite'?'Satellite imagery © Esri':'Street map © OpenStreetMap');
+}
+
 const charts={surface:{name:'WPC Surface Analysis',image:'/api/chart/surface',source:'https://www.wpc.ncep.noaa.gov/html/sfc2.shtml'},convective:{name:'SPC Day 1 Convective Outlook',image:'/api/chart/convective',source:'https://www.spc.noaa.gov/products/outlook/'}};
 function dateTime(value){if(!value)return 'Time unavailable';const d=typeof value==='number'?new Date(value*1000):new Date(value);return Number.isNaN(+d)?'Time unavailable':d.toLocaleString('en-US',{timeZone:'America/Chicago',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});}
 function status(message){text('#notice',message)}
@@ -17,12 +34,12 @@ $$('[data-open-chart]').forEach(el=>el.addEventListener('click',()=>openChart(el
 function scrollToPanel(id){document.getElementById(id)?.scrollIntoView({behavior:'smooth',block:'center'})}
 $$('[data-detail]').forEach(el=>el.addEventListener('click',()=>scrollToPanel(el.dataset.detail)));
 $$('[data-target]').forEach(el=>el.addEventListener('click',()=>{scrollToPanel(el.dataset.target);$$('[data-target]').forEach(b=>b.classList.toggle('active',b===el))}));
-function makeMap(node,zoom=6){if(!window.L)throw Error('Interactive map library unavailable');const m=L.map(node,{zoomControl:true}).setView(KOMA,zoom);L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxZoom:19}).addTo(m);return m}
+function makeMap(node,zoom=6){if(!window.L)throw Error('Interactive map library unavailable');const m=L.map(node,{zoomControl:true}).setView(homeCoords(),current.mapStyle==='sectional'?Math.max(8,zoom):zoom);m.wcBaseLayer=createBaseLayer(current.mapStyle).addTo(m);mapsRegistry.add(m);m.on('unload',()=>mapsRegistry.delete(m));return m}
 function latestRadarFrame(){const a=current.radar?.radar?.past||[];return a.length?a[Math.max(0,Math.min(current.radarFrame,a.length-1))]:null}
 function addRadarLayer(map){const frame=latestRadarFrame();if(!frame)return null;const url=`${current.radar.host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;const l=L.tileLayer(url,{maxNativeZoom:7,maxZoom:18,opacity:.78,attribution:'Radar © RainViewer'}).addTo(map);text('#map-caption','Radar observation: '+dateTime(frame.time));return l}
 function removeMainLayers(){if(current.mapLayer){current.map.removeLayer(current.mapLayer);current.mapLayer=null}if(current.routeLayer){current.map.removeLayer(current.routeLayer);current.routeLayer=null}}
-function drawRouteOn(map){const pts=current.route.filter(p=>p.coords);const group=L.layerGroup().addTo(map);if(pts.length){const coords=pts.map(x=>x.coords);pts.forEach(p=>{const name=htmlEscape(p.id), report=htmlEscape(p.metar?.rawOb||'METAR unavailable');L.marker(p.coords).addTo(group).bindPopup(`<strong>${name}</strong><p>${report}</p>`)});if(coords.length>1)L.polyline(coords,{color:'#55d9ff',weight:4,dashArray:'8 6'}).addTo(group);if(coords.length>1)map.fitBounds(L.latLngBounds(coords).pad(.18));else map.setView(coords[0],8)}else{L.marker(KOMA).bindPopup('KOMA').addTo(group);map.setView(KOMA,6)}return group}
-function mapMode(mode){setTab('map',mode);$('#play-radar').classList.toggle('hidden',mode!=='radar');$('#map-chart').classList.add('hidden');$('#main-map').classList.remove('hidden');$('#chart-unavailable').classList.add('hidden');removeMainLayers();if(mode==='radar'){current.map.setView(KOMA,6);current.mapLayer=addRadarLayer(current.map);$('#map-source').href='https://radar.weather.gov/';text('#map-source','NOAA radar ↗')}else if(mode==='route'){current.routeLayer=drawRouteOn(current.map);if(current.routeRadarOn)current.mapLayer=addRadarLayer(current.map);text('#map-caption','Straight-line planning display; not an approved flight route');$('#map-source').href='https://aviationweather.gov/';text('#map-source','Aviation Weather Center ↗');}else{const c=charts[mode];if(!c)return;$('#main-map').classList.add('hidden');$('#map-chart').classList.remove('hidden');const image=$('#map-chart-image');image.style.display='block';image.src=c.image+'?v='+Math.floor(Date.now()/900000);image.alt=c.name;image.onerror=()=>{image.style.display='none';$('#chart-unavailable').classList.remove('hidden')};$('#map-source').href=c.source;text('#map-source','Official source ↗');text('#map-caption',c.name+' · verify analysis/valid time on chart')}if(mode==='radar'||mode==='route')setTimeout(()=>current.map.invalidateSize(),100)}
+function drawRouteOn(map){const pts=current.route.filter(p=>p.coords);const group=L.layerGroup().addTo(map);if(pts.length){const coords=pts.map(x=>x.coords);pts.forEach(p=>{const name=htmlEscape(p.id), report=htmlEscape(p.metar?.rawOb||'METAR unavailable');L.marker(p.coords).addTo(group).bindPopup(`<strong>${name}</strong><p>${report}</p>`)});if(coords.length>1)L.polyline(coords,{color:'#55d9ff',weight:4,dashArray:'8 6'}).addTo(group);if(coords.length>1)map.fitBounds(L.latLngBounds(coords).pad(.18));else map.setView(coords[0],8)}else{L.marker(homeCoords()).bindPopup(current.homeId).addTo(group);map.setView(homeCoords(),current.mapStyle==='sectional'?8:6)}return group}
+function mapMode(mode){setTab('map',mode);$('#play-radar').classList.toggle('hidden',mode!=='radar');$('#map-chart').classList.add('hidden');$('#main-map').classList.remove('hidden');$('#chart-unavailable').classList.add('hidden');removeMainLayers();if(mode==='radar'){current.map.setView(homeCoords(),current.mapStyle==='sectional'?8:6);current.mapLayer=addRadarLayer(current.map);$('#map-source').href='https://radar.weather.gov/';text('#map-source','NOAA radar ↗')}else if(mode==='route'){current.routeLayer=drawRouteOn(current.map);if(current.routeRadarOn)current.mapLayer=addRadarLayer(current.map);text('#map-caption','Straight-line planning display; not an approved flight route');$('#map-source').href='https://aviationweather.gov/';text('#map-source','Aviation Weather Center ↗');}else{const c=charts[mode];if(!c)return;$('#main-map').classList.add('hidden');$('#map-chart').classList.remove('hidden');const image=$('#map-chart-image');image.style.display='block';image.src=c.image+'?v='+Math.floor(Date.now()/900000);image.alt=c.name;image.onerror=()=>{image.style.display='none';$('#chart-unavailable').classList.remove('hidden')};$('#map-source').href=c.source;text('#map-source','Official source ↗');text('#map-caption',c.name+' · verify analysis/valid time on chart')}if(mode==='radar'||mode==='route')setTimeout(()=>current.map.invalidateSize(),100)}
 $$('[data-map]').forEach(btn=>btn.addEventListener('click',()=>mapMode(btn.dataset.map)));
 function modalMap(){const node=document.createElement('div');node.className='modal-map';showModal('Regional Radar / Route Map',node,'https://radar.weather.gov/');current.modalMap=makeMap(node,7);if($('.tab.active')?.dataset.map==='route'){drawRouteOn(current.modalMap);if(current.routeRadarOn)addRadarLayer(current.modalMap)}else addRadarLayer(current.modalMap);setTimeout(()=>current.modalMap?.invalidateSize(),150)}
 $('#expand-map').onclick=()=>{const active=$('.tab.active')?.dataset.map;if(charts[active])openChart(active);else modalMap()};$('#map-full').onclick=$('#expand-map').onclick;
@@ -30,18 +47,18 @@ function pauseRadar(){current.radarPlaying=false;clearInterval(current.radarTime
 $('#play-radar').onclick=()=>{if(current.radarPlaying){pauseRadar();return}if((current.radar?.radar?.past||[]).length<2)return;current.radarPlaying=true;text('#play-radar','Ⅱ');current.radarTimer=setInterval(()=>{const frames=current.radar.radar.past;current.radarFrame=(current.radarFrame+1)%frames.length;if($('.tab.active')?.dataset.map==='radar'){if(current.mapLayer)current.map.removeLayer(current.mapLayer);current.mapLayer=addRadarLayer(current.map)}},850)};
 async function loadRadar(){try{const r=await fetchJSON('/api/radar');current.radar=r;const frames=r?.radar?.past||[];current.radarFrame=frames.length-1;if($('.tab.active')?.dataset.map==='radar'){if(current.mapLayer)current.map.removeLayer(current.mapLayer);current.mapLayer=addRadarLayer(current.map)}drawSmallRouteMap();if(!frames.length)text('#map-caption','No recent radar frames available')}catch(err){text('#map-caption','Radar unavailable · '+err.message);drawSmallRouteMap()}}
 function decodeMETAR(m){if(!m)return '<p>Observation unavailable.</p>';const rows=[['Station',m.icaoId],['Wind',m.wdir==null?'Unavailable':`${m.wdir}° at ${m.wspd??'—'} kt${m.wgst?' gust '+m.wgst+' kt':''}`],['Visibility',m.visib==null?'Unavailable':m.visib+' SM'],['Flight category',m.fltCat||'Unavailable'],['Temperature',m.temp==null?'Unavailable':m.temp+'°C'],['Dew point',m.dewp==null?'Unavailable':m.dewp+'°C'],['Altimeter',m.altim==null?'Unavailable':m.altim+' hPa (source field)']];return rows.map(([a,b])=>`<div><strong>${htmlEscape(a)}</strong><br>${htmlEscape(b)}</div>`).join('')}
-function aviationTab(tab){setTab('aviation',tab);$('#aviation-raw').classList.toggle('hidden',tab==='decoded');$('#aviation-decoded').classList.toggle('hidden',tab!=='decoded');if(tab==='metar')text('#aviation-raw',current.metar?.rawOb||'KOMA METAR unavailable');if(tab==='taf')text('#aviation-raw',current.taf?.rawTAF||'KOMA TAF unavailable');if(tab==='decoded')$('#aviation-decoded').innerHTML=decodeMETAR(current.metar)}
+function aviationTab(tab){setTab('aviation',tab);$('#aviation-raw').classList.toggle('hidden',tab==='decoded');$('#aviation-decoded').classList.toggle('hidden',tab!=='decoded');if(tab==='metar')text('#aviation-raw',current.metar?.rawOb||current.homeId+' METAR unavailable');if(tab==='taf')text('#aviation-raw',current.taf?.rawTAF||current.homeId+' TAF unavailable');if(tab==='decoded')$('#aviation-decoded').innerHTML=decodeMETAR(current.metar)}
 $$('[data-aviation]').forEach(b=>b.onclick=()=>aviationTab(b.dataset.aviation));
-async function loadAviation(){try{const [ms,ts]=await Promise.allSettled([fetchJSON('/api/metar'),fetchJSON('/api/taf')]);const m=ms.status==='fulfilled'&&Array.isArray(ms.value)?ms.value.find(x=>x.icaoId==='KOMA'):null;const t=ts.status==='fulfilled'&&Array.isArray(ts.value)?ts.value.find(x=>x.icaoId==='KOMA'):null;current.metar=m;current.taf=t;text('#wind',m?.wspd!=null?m.wspd+' kt':'—');text('#windinfo',m?.wdir!=null?`${m.wdir}°${m.wgst?` · gust ${m.wgst} kt`:''}`:'Wind direction unavailable');text('#flightcat',m?.fltCat||'—');text('#flightdetail',m?.visib!=null?`Visibility ${m.visib} SM`:'Category/visibility unavailable');$('#flightcat').style.color=({VFR:'#57e69e',MVFR:'#7ebdff',IFR:'#ff6873',LIFR:'#e88eff'})[m?.fltCat]||'';text('#aviation-time','Observed '+dateTime(m?.obsTime));aviationTab($('.pill.active')?.dataset.aviation||'metar');if(!m)status('KOMA METAR not available from the upstream feed.')}catch(err){status('Aviation observations unavailable: '+err.message)}}
-async function loadForecastSummary(){try{const r=await fetchJSON('/api/forecast');current.forecast=r;const p=r?.properties?.periods?.[0];text('#temp',p?.temperature!=null?`${p.temperature}°${p.temperatureUnit||'F'}`:'—');text('#conditions',p?.shortForecast||'NWS forecast unavailable')}catch(err){text('#conditions','NWS forecast unavailable')}}
-async function loadAlerts(){try{const d=await fetchJSON('/api/alerts');const items=d?.features||[];current.alerts=items;text('#alerts-count',items.length);text('#alerts-label',items.length?'Active NWS Nebraska products':'No active Nebraska alerts');const host=$('#alerts-list');host.replaceChildren();if(!items.length){host.textContent='No current NWS alerts for Nebraska.';return}items.slice(0,15).forEach(a=>{const box=document.createElement('div');box.className='alert';const title=document.createElement('strong');title.textContent=a.properties?.event||'Weather alert';const detail=document.createElement('small');detail.textContent=a.properties?.areaDesc||'';box.append(title,detail);host.append(box)})}catch(err){text('#alerts-count','—');text('#alerts-list','NWS alerts unavailable: '+err.message)}}
+async function loadAviation(){try{const d=await fetchJSON('/api/airport-route?ids='+encodeURIComponent(current.homeId));const m=d.metars?.find(x=>codeOf(x)===current.homeId)||null;const t=d.tafs?.find(x=>codeOf(x)===current.homeId)||null;current.metar=m;current.taf=t;text('#wind',m?.wspd!=null?m.wspd+' kt':'—');text('#windinfo',m?.wdir!=null?`${m.wdir}°${m.wgst?` · gust ${m.wgst} kt`:''}`:'Wind direction unavailable');text('#flightcat',m?.fltCat||'—');text('#flightdetail',m?.visib!=null?`Visibility ${m.visib} SM`:'Category/visibility unavailable');$('#flightcat').style.color=({VFR:'#57e69e',MVFR:'#7ebdff',IFR:'#ff6873',LIFR:'#e88eff'})[m?.fltCat]||'';text('#aviation-time','Observed '+dateTime(m?.obsTime));aviationTab($('.pill.active')?.dataset.aviation||'metar');if(!m)status(current.homeId+' METAR unavailable; not every airport publishes observations.')}catch(err){status('Aviation observations unavailable: '+err.message)}}
+async function loadForecastSummary(){try{const c=homeCoords();const r=await fetchJSON('/api/location-forecast?lat='+c[0]+'&lon='+c[1]);current.forecast=r;const p=r?.periods?.[0];text('#temp',p?.temperature!=null?`${p.temperature}°${p.temperatureUnit||'F'}`:'—');text('#conditions',p?.shortForecast||'NWS forecast unavailable')}catch(err){text('#conditions','NWS forecast unavailable')}}
+async function loadAlerts(){try{const c=homeCoords();const d=await fetchJSON('/api/home-alerts?lat='+c[0]+'&lon='+c[1]);const items=d?.features||[];current.alerts=items;text('#alerts-count',items.length);text('#alerts-label',items.length?'NWS alerts near '+current.homeId:'No NWS alerts near '+current.homeId);const host=$('#alerts-list');host.replaceChildren();if(!items.length){host.textContent='No current NWS alerts for '+current.homeId+'.';return}items.slice(0,15).forEach(a=>{const box=document.createElement('div');box.className='alert';const title=document.createElement('strong');title.textContent=a.properties?.event||'Weather alert';const detail=document.createElement('small');detail.textContent=a.properties?.areaDesc||'';box.append(title,detail);host.append(box)})}catch(err){text('#alerts-count','—');text('#alerts-list','NWS alerts unavailable: '+err.message)}}
 function normalize(code){const c=String(code||'').trim().toUpperCase();if(!/^[A-Z0-9]{3,4}$/.test(c))throw Error('Enter a 3- or 4-character airport identifier');return c.length===3?'K'+c:c}
 function coordsOf(x){const lat=Number(x?.lat??x?.latitude??x?.latitude_deg??x?.latDecimal),lon=Number(x?.lon??x?.longitude??x?.longitude_deg??x?.lonDecimal);return Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180?[lat,lon]:null}
 function codeOf(x){return String(x?.icaoId??x?.icao??x?.id??x?.ident??x?.stationId??'').toUpperCase()}
-async function lookupAirports(ids){const resp=await fetchJSON('/api/airport-route?ids='+encodeURIComponent(ids.join(',')));return ids.map(id=>({id,metar:resp.metars?.find(x=>codeOf(x)===id),taf:resp.tafs?.find(x=>codeOf(x)===id),coords:coordsOf(resp.airports?.find(x=>codeOf(x)===id))||coordsOf(resp.metars?.find(x=>codeOf(x)===id))||(id==='KOMA'?KOMA:null)}))}
+async function lookupAirports(ids){const resp=await fetchJSON('/api/airport-route?ids='+encodeURIComponent(ids.join(',')));return ids.map(id=>({id,metar:resp.metars?.find(x=>codeOf(x)===id),taf:resp.tafs?.find(x=>codeOf(x)===id),coords:coordsOf(resp.airports?.find(x=>codeOf(x)===id))||coordsOf(resp.metars?.find(x=>codeOf(x)===id))||(id===current.homeId?homeCoords():null)}))}
 function distanceNM(a,b){const rad=x=>x*Math.PI/180;const dlat=rad(b[0]-a[0]),dlon=rad(b[1]-a[1]);const h=Math.sin(dlat/2)**2+Math.cos(rad(a[0]))*Math.cos(rad(b[0]))*Math.sin(dlon/2)**2;return 3440.065*2*Math.asin(Math.min(1,Math.sqrt(h)))}
 function calculateRoute(){let sum=0;let complete=true;for(let i=1;i<current.route.length;i++){const a=current.route[i-1].coords,b=current.route[i].coords;if(a&&b)sum+=distanceNM(a,b);else complete=false}const gs=Number($('#groundspeed').value),gph=Number($('#fuelburn').value);const can=complete&&current.route.length>1&&gs>0&&gph>0;text('#distance',can?sum.toFixed(0)+' NM':'—');text('#ete',can?(sum/gs).toFixed(1)+' h':'—');text('#fuel',can?(sum/gs*gph).toFixed(1)+' gal':'—');return can}
-function updateForecastLocations(){const selected=$('#forecast-select').value;const opts=[{id:'KOMA'},...current.route.filter(x=>x.id!=='KOMA')].filter((p,i,a)=>a.findIndex(x=>x.id===p.id)===i);$('#forecast-select').replaceChildren();opts.forEach(p=>{const option=document.createElement('option');option.value=p.id;option.textContent=p.id;$('#forecast-select').append(option)});$('#forecast-select').value=opts.some(x=>x.id===selected)?selected:current.route.at(-1)?.id||'KOMA';loadLocationForecast()}
+function updateForecastLocations(){const selected=$('#forecast-select').value;const opts=[{id:current.homeId},...current.route.filter(x=>x.id!==current.homeId)].filter((p,i,a)=>a.findIndex(x=>x.id===p.id)===i);$('#forecast-select').replaceChildren();opts.forEach(p=>{const option=document.createElement('option');option.value=p.id;option.textContent=p.id;$('#forecast-select').append(option)});$('#forecast-select').value=opts.some(x=>x.id===selected)?selected:current.route.at(-1)?.id||current.homeId;loadLocationForecast()}
 
 const categoryClass=cat=>['VFR','MVFR','IFR','LIFR'].includes(cat)?cat.toLowerCase():'unknown';
 function routeMarker(p,index){
@@ -60,7 +77,7 @@ function routeBounds(map){
  const points=current.route.filter(p=>p.coords).map(p=>p.coords);
  if(points.length>1)map.fitBounds(L.latLngBounds(points).pad(.20),{maxZoom:10});
  else if(points.length===1)map.setView(points[0],8);
- else map.setView(KOMA,7);
+ else map.setView(homeCoords(),current.mapStyle==='sectional'?8:7);
 }
 function routeLayers(map,{withRadar=true}={}){
  const pts=current.route.filter(p=>p.coords);
@@ -68,7 +85,7 @@ function routeLayers(map,{withRadar=true}={}){
  // Missing-coordinate airports are intentionally omitted, never placed at a made-up position.
  current.route.forEach((p,i)=>{if(!p.coords)return;L.marker(p.coords,{icon:routeMarker(p,i)}).addTo(routeLayer).bindPopup(routePopup(p,i),{maxWidth:310})});
  if(pts.length>=2)L.polyline(pts.map(p=>p.coords),{color:'#4ce2ff',weight:4,opacity:.98,dashArray:'9 6'}).addTo(routeLayer);
- if(!pts.length)L.marker(KOMA).addTo(routeLayer).bindPopup('KOMA · Home airport');
+ if(!pts.length)L.marker(homeCoords()).addTo(routeLayer).bindPopup(current.homeId+' · Home airport');
  const radarLayer=withRadar?addRadarLayer(map):null;
  routeBounds(map);
  return {routeLayer,radarLayer};
@@ -116,9 +133,9 @@ function openAirport(p){const block=document.createElement('div');block.innerHTM
 $('#airport-search').onsubmit=async e=>{e.preventDefault();let id;try{id=normalize($('#airport-id').value)}catch(err){status(err.message);return}status(`Looking up ${id}…`);try{const [p]=await lookupAirports([id]);current.route.some(x=>x.id===id)||current.route.push(p);updateForecastLocations();status('');openAirport(p)}catch(err){status('Airport lookup failed: '+err.message)}};
 function iconFor(x){const s=String(x||'').toLowerCase();if(/thunder/.test(s))return '⛈';if(/snow|sleet|ice/.test(s))return '❄';if(/rain|shower|drizzle/.test(s))return '🌧';if(/cloud|overcast/.test(s))return '☁';if(/fog|haze/.test(s))return '≋';return '☀'}
 function forecastTiles(periods){const host=$('#forecast-days');host.replaceChildren();const daytime=periods.filter(p=>p.isDaytime);const samples=daytime.length?daytime.slice(0,5):periods.slice(0,5);for(const p of samples){const tile=document.createElement('div');tile.className='day';const day=document.createElement('strong');day.textContent=p.name||'Period';const symbol=document.createElement('div');symbol.className='symbol';symbol.textContent=iconFor(p.shortForecast);const t=document.createElement('div');t.className='temperature';t.textContent=p.temperature!=null?p.temperature+'°':'—';const info=document.createElement('small');info.textContent=p.shortForecast||'Forecast unavailable';const wind=document.createElement('small');wind.textContent=[p.windDirection,p.windSpeed].filter(Boolean).join(' ')||'Wind unavailable';tile.append(day,symbol,t,info,wind);host.append(tile)}if(!samples.length)host.textContent='No forecast periods available.'}
-async function loadLocationForecast(){const id=$('#forecast-select').value||'KOMA';const p=current.route.find(x=>x.id===id);const coords=p?.coords||(id==='KOMA'?KOMA:null);if(!coords){text('#forecast-status',`${id}: Coordinates unavailable for NWS forecast`);return}text('#forecast-status','Loading NWS forecast near '+id+'…');try{const data=await fetchJSON(`/api/location-forecast?lat=${coords[0]}&lon=${coords[1]}`);forecastTiles(data.periods||[]);text('#forecast-status',id+' · NWS general forecast, not an aviation flight category or TAF.');text('#forecast-updated',dateTime(data.updated))}catch(err){text('#forecast-status','NWS forecast unavailable: '+err.message);text('#forecast-days','No forecast available')}}
+async function loadLocationForecast(){const id=$('#forecast-select').value||current.homeId;const p=current.route.find(x=>x.id===id);const coords=p?.coords||(id===current.homeId?homeCoords():null);if(!coords){text('#forecast-status',`${id}: Coordinates unavailable for NWS forecast`);return}text('#forecast-status','Loading NWS forecast near '+id+'…');try{const data=await fetchJSON(`/api/location-forecast?lat=${coords[0]}&lon=${coords[1]}`);forecastTiles(data.periods||[]);text('#forecast-status',id+' · NWS general forecast, not an aviation flight category or TAF.');text('#forecast-updated',dateTime(data.updated))}catch(err){text('#forecast-status','NWS forecast unavailable: '+err.message);text('#forecast-days','No forecast available')}}
 $('#forecast-select').onchange=loadLocationForecast;
-function modalSection(type){let content=document.createElement('div'),source='';switch(type){case'airport':content.innerHTML=`<div class="modal-row"><strong>METAR</strong><pre>${htmlEscape(current.metar?.rawOb||'Unavailable')}</pre></div><div class="modal-row"><strong>TAF</strong><pre>${htmlEscape(current.taf?.rawTAF||'Unavailable')}</pre></div><div class="modal-row">${decodeMETAR(current.metar)}</div>`;source='https://aviationweather.gov/';break;case'route':content.innerHTML=`<p class="source-note">Straight-line segment estimates only; terrain, airspace, winds, hazards, NOTAMs and route clearance are not evaluated. Official briefing required.</p>`;for(const p of current.route){const row=document.createElement('div');row.className='modal-row';row.innerHTML=`<strong>${htmlEscape(p.id)} · ${htmlEscape(p.metar?.fltCat||'No category')}</strong><pre>${htmlEscape(p.metar?.rawOb||'No METAR')}</pre><pre>${htmlEscape(p.taf?.rawTAF||'No published TAF')}</pre>`;content.append(row)}source='https://www.1800wxbrief.com/';break;case'forecast':content.innerHTML='<p class="source-note">Choose an airport from the dashboard forecast selector to update the five-period forecast. Detailed forecast products are available from NWS.</p>';source='https://www.weather.gov/';break;case'winds':if(lastWindReport?.available){content.append(windRowsToElement(lastWindReport))}else content.innerHTML='<p>Official winds aloft unavailable. Use the AWC link for source data.</p>';source='https://aviationweather.gov/windtemp';break;case'models':content.innerHTML='<p>Open NOAA operational products for live HRRR and GFS model runs. Full interactive model animation is not included in this release.</p><div class="modal-row"><a href="https://www.nco.ncep.noaa.gov/pmb/products/hrrr/" target="_blank" rel="noopener">HRRR model charts ↗</a></div><div class="modal-row"><a href="https://www.nco.ncep.noaa.gov/pmb/products/gfs/" target="_blank" rel="noopener">GFS model charts ↗</a></div>';source='https://nomads.ncep.noaa.gov/';break;case'alerts':for(const a of current.alerts){const row=document.createElement('div');row.className='modal-row';row.innerHTML=`<strong>${htmlEscape(a.properties?.event||'Alert')}</strong><p>${htmlEscape(a.properties?.areaDesc||'')}</p><p>${htmlEscape(a.properties?.headline||'')}</p>`;content.append(row)}if(!current.alerts.length)content.textContent='No active alerts retrieved.';source='https://www.weather.gov/';break}showModal(({airport:'KOMA Aviation',route:'Route Airport Weather',forecast:'Extended Forecast',winds:'Winds Aloft',models:'Forecast Models',alerts:'Nebraska Weather Alerts'})[type]||'Details',content,source)}
+function modalSection(type){let content=document.createElement('div'),source='';switch(type){case'airport':content.innerHTML=`<div class="modal-row"><strong>METAR</strong><pre>${htmlEscape(current.metar?.rawOb||'Unavailable')}</pre></div><div class="modal-row"><strong>TAF</strong><pre>${htmlEscape(current.taf?.rawTAF||'Unavailable')}</pre></div><div class="modal-row">${decodeMETAR(current.metar)}</div>`;source='https://aviationweather.gov/';break;case'route':content.innerHTML=`<p class="source-note">Straight-line segment estimates only; terrain, airspace, winds, hazards, NOTAMs and route clearance are not evaluated. Official briefing required.</p>`;for(const p of current.route){const row=document.createElement('div');row.className='modal-row';row.innerHTML=`<strong>${htmlEscape(p.id)} · ${htmlEscape(p.metar?.fltCat||'No category')}</strong><pre>${htmlEscape(p.metar?.rawOb||'No METAR')}</pre><pre>${htmlEscape(p.taf?.rawTAF||'No published TAF')}</pre>`;content.append(row)}source='https://www.1800wxbrief.com/';break;case'forecast':content.innerHTML='<p class="source-note">Choose an airport from the dashboard forecast selector to update the five-period forecast. Detailed forecast products are available from NWS.</p>';source='https://www.weather.gov/';break;case'winds':if(lastWindReport?.available){content.append(windRowsToElement(lastWindReport))}else content.innerHTML='<p>Official winds aloft unavailable. Use the AWC link for source data.</p>';source='https://aviationweather.gov/windtemp';break;case'models':content.innerHTML='<p>Open NOAA operational products for live HRRR and GFS model runs. Full interactive model animation is not included in this release.</p><div class="modal-row"><a href="https://www.nco.ncep.noaa.gov/pmb/products/hrrr/" target="_blank" rel="noopener">HRRR model charts ↗</a></div><div class="modal-row"><a href="https://www.nco.ncep.noaa.gov/pmb/products/gfs/" target="_blank" rel="noopener">GFS model charts ↗</a></div>';source='https://nomads.ncep.noaa.gov/';break;case'alerts':for(const a of current.alerts){const row=document.createElement('div');row.className='modal-row';row.innerHTML=`<strong>${htmlEscape(a.properties?.event||'Alert')}</strong><p>${htmlEscape(a.properties?.areaDesc||'')}</p><p>${htmlEscape(a.properties?.headline||'')}</p>`;content.append(row)}if(!current.alerts.length)content.textContent='No active alerts retrieved.';source='https://www.weather.gov/';break}showModal(({airport:current.homeId+' Aviation',route:'Route Airport Weather',forecast:'Extended Forecast',winds:'Winds Aloft',models:'Forecast Models',alerts:'Nebraska Weather Alerts'})[type]||'Details',content,source)}
 $$('[data-modal]').forEach(b=>b.addEventListener('click',()=>modalSection(b.dataset.modal)));
 
 let lastWindReport=null;
@@ -158,7 +175,40 @@ $('#quick-plan').onclick=()=>{
 
 async function refresh(){text('#checked','Refreshing sources…');status('');await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadRadar(),loadLocationForecast(),loadWinds()]);text('#checked','Updated '+new Date().toLocaleTimeString('en-US',{timeZone:'America/Chicago',hour:'numeric',minute:'2-digit',timeZoneName:'short'}))}
 $('#refresh').onclick=refresh;setInterval(()=>{text('#utc',new Date().toLocaleTimeString('en-GB',{timeZone:'UTC',hour:'2-digit',minute:'2-digit'})+' UTC')},30000);text('#utc',new Date().toLocaleTimeString('en-GB',{timeZone:'UTC',hour:'2-digit',minute:'2-digit'})+' UTC');
-try{current.map=makeMap('main-map');initRouteWeatherMap();L.marker(KOMA).addTo(current.map).bindPopup('KOMA · Eppley Airfield');refresh();setInterval(refresh,300000)}catch(err){status('Map library unavailable: '+err.message);refresh()}
+
+// User-selectable home airport and map style. Keep state local to the browser.
+$('#map-style').value=['sectional','street','satellite'].includes(current.mapStyle)?current.mapStyle:'sectional';
+$('#map-style').addEventListener('change',e=>{current.mapStyle=e.target.value;writePref('wc-map-style-v13',current.mapStyle);changeBaseLayers()});
+$('#home-airport').value=current.homeId;
+function refreshHomeLabels(){
+ $('#home-airport').value=current.homeId;
+ text('#home-airport-status',current.homeId+' · selected home airport');
+ text('#route-current-from',current.homeId);
+ const title=$('#airport-section .panelhead h2');if(title)title.textContent='✈ '+current.homeId+' AVIATION';
+ $('#quick-from').value=current.homeId;$('#route-from').value=current.homeId;
+ const forecast=$('#forecast-select');if(forecast){forecast.replaceChildren();const option=document.createElement('option');option.value=current.homeId;option.textContent=current.homeId+' · home';forecast.append(option)}
+ const label=document.querySelector('.stat:nth-child(2) .stathead span');if(label)label.textContent='WINDS AT '+current.homeId;
+ const windStations=$('#wind-station');if(windStations){const short=current.homeId.slice(1);if([...windStations.options].some(x=>x.value===short))windStations.value=short}
+}
+refreshHomeLabels();
+$('#home-airport-form').addEventListener('submit',async e=>{
+ e.preventDefault();let id;try{id=normalize($('#home-airport').value)}catch(err){status(err.message);return}
+ const btn=$('#home-airport-form button');btn.disabled=true;text('#home-airport-status','Checking airport '+id+'…');
+ try{
+  const [airport]=await lookupAirports([id]);if(!airport?.coords)throw Error('No usable coordinates for '+id+'. Choose a supported airport identifier.');
+  current.homeId=id;current.homeCoords=airport.coords;
+  writePref('wc-home-airport-v13',id);writePref('wc-home-coords-v13',JSON.stringify(airport.coords));
+  refreshHomeLabels();updateForecastLocations();
+  for(const map of mapsRegistry){if(map===current.map||map===current.routeWeatherMap)map.setView(homeCoords(),current.mapStyle==='sectional'?8:7)}
+  // Remove previous home pin to avoid multiple home airports on the map.
+  if(current.homeMarker)current.map.removeLayer(current.homeMarker);
+  current.homeMarker=L.marker(homeCoords()).addTo(current.map).bindPopup(current.homeId+' · Home airport');
+  if(!current.route.length)drawSmallRouteMap();
+  await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadLocationForecast(),loadWinds()]);status('Home airport saved: '+id);
+ }catch(err){text('#home-airport-status','Unable to select: '+err.message);status(err.message)}finally{btn.disabled=false}
+});
+
+try{current.map=makeMap('main-map');initRouteWeatherMap();current.homeMarker=L.marker(homeCoords()).addTo(current.map).bindPopup(current.homeId+' · Home airport');changeBaseLayers();refresh();setInterval(refresh,300000)}catch(err){status('Map library unavailable: '+err.message);refresh()}
 
 // Make chart thumbnails resilient to source outages. The text fallback stays clickable.
 function attachChartFallbacks(){
@@ -203,59 +253,48 @@ if(routeToggle&&routeEditor){
 }
 
 
-// v1.2 dashboard layout arranger: moves existing live panels without recreating their content.
-// Preferences stay in this browser's localStorage. No account or API key required.
+// v1.3 dashboard arranger: exact grid placement, width+height editing, accessible move controls.
 (function configurePanelLayout(){
- const board=document.getElementById('custom-board'),toggle=document.getElementById('layout-toggle'),reset=document.getElementById('layout-reset');
- if(!board||!toggle||!reset)return;
+ const board=$('#custom-board'),toggle=$('#layout-toggle'),reset=$('#layout-reset');if(!board||!toggle||!reset)return;
  const ids=['airport-section','wind-section','charts-section','route-section','route-weather-panel','forecast-section','model-section','surface-panel','convective-panel','alert-section'];
  const nodes=ids.map(id=>document.getElementById(id)).filter(Boolean);
- const homes=new Map(nodes.map(node=>[node.id,{parent:node.parentElement,index:[...node.parentElement.children].indexOf(node)}]));
- const key='weather-command-layout-v12';
- const defaults={'charts-section':8,'airport-section':4,'wind-section':4,'route-section':4,'route-weather-panel':4,'forecast-section':4,'model-section':4,'surface-panel':4,'convective-panel':4,'alert-section':4};
- let customizing=false,active=false,dragged=null;
- function resizeMaps(){requestAnimationFrame(()=>setTimeout(()=>{
-   try{current.map?.invalidateSize()}catch{}
-   try{current.routeWeatherMap?.invalidateSize()}catch{}
- },110))}
- function save(){if(!active)return;try{localStorage.setItem(key,JSON.stringify({order:[...board.children].filter(el=>el.classList.contains('panel')).map(el=>el.id),sizes:Object.fromEntries(nodes.map(n=>[n.id,Number(n.dataset.span)||4]))}))}catch{}}
- function controls(node){let bar=node.querySelector(':scope > .layout-controls');if(bar)return bar;
-   bar=document.createElement('div');bar.className='layout-controls';bar.hidden=true;
-   const handle=document.createElement('span');handle.className='drag-handle';handle.textContent='⠿ Drag panel';handle.setAttribute('aria-label','Drag '+node.id);
-   const group=document.createElement('span');group.className='layout-tools';
-   const up=document.createElement('button');up.type='button';up.textContent='←';up.title='Move panel earlier';up.setAttribute('aria-label','Move '+node.id+' earlier');
-   const down=document.createElement('button');down.type='button';down.textContent='→';down.title='Move panel later';down.setAttribute('aria-label','Move '+node.id+' later');
-   const select=document.createElement('select');select.setAttribute('aria-label','Panel width for '+node.id);
-   for(const [label,n] of [['Small',3],['Medium',4],['Wide',6],['Extra wide',8],['Full width',12]]){const opt=document.createElement('option');opt.value=n;opt.textContent=label;select.append(opt)}
-   select.value=String(Number(node.dataset.span)||defaults[node.id]||4);
-   select.addEventListener('change',()=>{node.dataset.span=select.value;save();resizeMaps()});
-   up.onclick=()=>{const prev=node.previousElementSibling;if(prev&&prev.classList.contains('panel'))board.insertBefore(node,prev);save();resizeMaps()};
-   down.onclick=()=>{const next=node.nextElementSibling;if(next&&next.classList.contains('panel'))board.insertBefore(next,node);save();resizeMaps()};
-   group.append(up,down,select);bar.append(handle,group);node.insertBefore(bar,node.firstChild);
-   handle.draggable=true;
-   handle.addEventListener('dragstart',e=>{if(!customizing){e.preventDefault();return}dragged=node;node.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',node.id)});
-   handle.addEventListener('dragend',()=>{node.classList.remove('dragging');dragged=null;nodes.forEach(n=>n.classList.remove('drop-target'))});
-   node.addEventListener('dragover',e=>{if(!customizing||!dragged||dragged===node)return;e.preventDefault();node.classList.add('drop-target')});
-   node.addEventListener('dragleave',()=>node.classList.remove('drop-target'));
-   node.addEventListener('drop',e=>{if(!customizing||!dragged||dragged===node)return;e.preventDefault();node.classList.remove('drop-target');const rect=node.getBoundingClientRect();if(e.clientY>rect.top+rect.height/2)node.after(dragged);else node.before(dragged);save();resizeMaps()});
-   return bar;
+ const original=new Map(nodes.map(n=>[n.id,{parent:n.parentElement,index:[...n.parentElement.children].indexOf(n)}]));
+ const storageKey='wc-layout-v13';const olderKey='weather-command-layout-v12';
+ const defaults={'charts-section':7,'airport-section':3,'wind-section':3,'route-section':4,'route-weather-panel':4,'forecast-section':4,'model-section':4,'surface-panel':4,'convective-panel':4,'alert-section':4};
+ let enabled=false,editing=false,dragged=null;
+ function resizeMaps(){requestAnimationFrame(()=>setTimeout(()=>{for(const m of mapsRegistry){try{m.invalidateSize()}catch{}}},100))}
+ const getPanels=()=>[...board.children].filter(n=>nodes.includes(n));
+ function save(){if(!enabled)return;try{localStorage.setItem(storageKey,JSON.stringify({order:getPanels().map(x=>x.id),widths:Object.fromEntries(nodes.map(n=>[n.id,Number(n.dataset.span)||4])),heights:Object.fromEntries(nodes.map(n=>[n.id,Number(n.dataset.panelHeight)||0]))}))}catch{}}
+ function moveTo(n,index){const others=getPanels().filter(x=>x!==n);const point=others[Math.max(0,Math.min(index,others.length))];if(point)board.insertBefore(n,point);else board.append(n);save();resizeMaps();refreshControls()}
+ function refreshControls(){getPanels().forEach((n,index)=>{const sel=n.querySelector('.layout-position');if(sel){sel.replaceChildren();getPanels().forEach((x,i)=>{const opt=document.createElement('option');opt.value=String(i);opt.textContent=(i+1)+'. '+(x.querySelector('h2')?.textContent||x.id);sel.append(opt)});sel.value=String(index)}const h=n.querySelector('.layout-height-output');if(h)h.textContent=(n.dataset.panelHeight||'Auto')+(n.dataset.panelHeight?'px':'')})}
+ function setupControls(n){let el=n.querySelector(':scope > .layout-controls');if(el)return el;
+  el=document.createElement('div');el.className='layout-controls';el.hidden=true;
+  const grip=document.createElement('span');grip.className='drag-handle';grip.textContent='⠿ Drag';grip.draggable=true;grip.title='Drag this handle to another panel';
+  grip.addEventListener('dragstart',e=>{if(!editing){e.preventDefault();return}dragged=n;n.classList.add('dragging');e.dataTransfer.setData('text/plain',n.id);e.dataTransfer.effectAllowed='move'});
+  grip.addEventListener('dragend',()=>{dragged=null;n.classList.remove('dragging');nodes.forEach(x=>x.classList.remove('drop-target'))});
+  const tools=document.createElement('div');tools.className='layout-tools';
+  function control(label,element){const wrap=document.createElement('label');wrap.className='layout-tool';wrap.append(document.createTextNode(label),element);tools.append(wrap)}
+  const pos=document.createElement('select');pos.className='layout-position';pos.setAttribute('aria-label','Move '+n.id+' to panel position');pos.onchange=()=>moveTo(n,Number(pos.value));control('Position',pos);
+  const width=document.createElement('input');width.type='range';width.min='2';width.max='12';width.step='1';width.value=n.dataset.span||defaults[n.id]||4;width.title='Panel width: '+width.value+' of 12 columns';
+  const widthInfo=document.createElement('output');widthInfo.textContent=width.value+'/12';width.oninput=()=>{n.dataset.span=width.value;widthInfo.textContent=width.value+'/12';width.title='Panel width '+width.value+' columns';resizeMaps();save()};
+  const widthWrap=document.createElement('span');widthWrap.className='layout-slider';widthWrap.append(width,widthInfo);control('Width',widthWrap);
+  const height=document.createElement('input');height.type='range';height.min='160';height.max='850';height.step='10';height.value=n.dataset.panelHeight||'320';height.title='Panel height';
+  const heightInfo=document.createElement('output');heightInfo.className='layout-height-output';heightInfo.textContent=n.dataset.panelHeight?n.dataset.panelHeight+'px':'Auto';
+  height.oninput=()=>{n.dataset.panelHeight=height.value;n.style.minHeight=height.value+'px';n.style.setProperty('--user-panel-height',height.value+'px');heightInfo.textContent=height.value+'px';save();resizeMaps()};
+  const heightWrap=document.createElement('span');heightWrap.className='layout-slider';heightWrap.append(height,heightInfo);control('Height',heightWrap);
+  const auto=document.createElement('button');auto.type='button';auto.textContent='Auto height';auto.onclick=()=>{delete n.dataset.panelHeight;n.style.minHeight='';n.style.removeProperty('--user-panel-height');heightInfo.textContent='Auto';save();resizeMaps()};tools.append(auto);
+  const back=document.createElement('button');back.type='button';back.textContent='←';back.title='Move earlier';back.onclick=()=>moveTo(n,Math.max(0,getPanels().indexOf(n)-1));
+  const next=document.createElement('button');next.type='button';next.textContent='→';next.title='Move later';next.onclick=()=>moveTo(n,Math.min(getPanels().length-1,getPanels().indexOf(n)+1));
+  tools.append(back,next);el.append(grip,tools);n.prepend(el);
+  n.addEventListener('dragover',e=>{if(!editing||!dragged||dragged===n)return;e.preventDefault();n.classList.add('drop-target')});
+  n.addEventListener('dragleave',()=>n.classList.remove('drop-target'));
+  n.addEventListener('drop',e=>{if(!editing||!dragged||dragged===n)return;e.preventDefault();n.classList.remove('drop-target');const rect=n.getBoundingClientRect();const after=e.clientY>rect.top+rect.height/2;board.insertBefore(dragged,after?n.nextSibling:n);save();resizeMaps();refreshControls()});
+  return el;
  }
- function setEditing(value){customizing=value;document.body.classList.toggle('layout-editing',value);toggle.setAttribute('aria-pressed',String(value));toggle.textContent=value?'Done Arranging':'Arrange Panels';
-   nodes.forEach(n=>{const bar=controls(n);bar.hidden=!value});
-   if(active)document.getElementById('layout-state').textContent=value?'Drag panels or use arrows and width menus':'Custom layout saved on this device';
- }
- function custom(data){active=true;board.classList.remove('hidden');
-   const order=Array.isArray(data?.order)?data.order:ids;
-   const arranged=[...new Set(order.concat(ids))].map(id=>document.getElementById(id)).filter(n=>nodes.includes(n));
-   arranged.forEach(node=>{node.dataset.span=String([3,4,6,8,12].includes(Number(data?.sizes?.[node.id]))?Number(data.sizes[node.id]):defaults[node.id]||4);board.append(node)});
-   document.getElementById('layout-state').textContent='Custom layout saved on this device';resizeMaps();
- }
- toggle.onclick=()=>{if(!active)custom(null);setEditing(!customizing);save()};
- reset.onclick=()=>{if(!confirm('Restore the original panel arrangement and sizes on this device?'))return;
-   setEditing(false);nodes.forEach(n=>{const bar=n.querySelector(':scope > .layout-controls');bar?.remove();n.removeAttribute('data-span')});
-   const parents=[...new Set(nodes.map(n=>homes.get(n.id).parent))];
-   for(const parent of parents){nodes.filter(n=>homes.get(n.id).parent===parent).sort((a,b)=>homes.get(a.id).index-homes.get(b.id).index).forEach(n=>parent.append(n))}
-   board.classList.add('hidden');active=false;document.getElementById('layout-state').textContent='Default layout';try{localStorage.removeItem(key)}catch{}resizeMaps();
- };
- try{const saved=JSON.parse(localStorage.getItem(key)||'null');if(saved&&Array.isArray(saved.order)){custom(saved);setEditing(false)}}catch{}
+ function custom(data){enabled=true;board.classList.remove('hidden');const arranged=[...new Set([...(data?.order||[]),...ids])].map(id=>document.getElementById(id)).filter(n=>nodes.includes(n));
+  arranged.forEach(n=>{n.dataset.span=String(Math.min(12,Math.max(2,Number(data?.widths?.[n.id]??data?.sizes?.[n.id]??defaults[n.id])||4)));const ht=Number(data?.heights?.[n.id]||0);if(ht>=160&&ht<=850){n.dataset.panelHeight=String(ht);n.style.minHeight=ht+'px';n.style.setProperty('--user-panel-height',ht+'px')}board.append(n)});refreshControls();resizeMaps();text('#layout-state','Saved on this device')}
+ function setEditing(value){editing=value;document.body.classList.toggle('layout-editing',value);toggle.textContent=value?'Done Arranging':'Arrange Panels';toggle.setAttribute('aria-pressed',String(value));nodes.forEach(n=>setupControls(n).hidden=!value);text('#layout-state',value?'Drag, resize or choose panel position':'Layout saved on this device');refreshControls();resizeMaps()}
+ toggle.onclick=()=>{if(!enabled)custom(null);setEditing(!editing);save()};
+ reset.onclick=()=>{if(!confirm('Restore default layout on this device?'))return;setEditing(false);nodes.forEach(n=>{n.querySelector(':scope > .layout-controls')?.remove();delete n.dataset.span;delete n.dataset.panelHeight;n.style.minHeight='';n.style.removeProperty('--user-panel-height')});const parents=[...new Set(nodes.map(n=>original.get(n.id).parent))];parents.forEach(parent=>nodes.filter(n=>original.get(n.id).parent===parent).sort((a,b)=>original.get(a.id).index-original.get(b.id).index).forEach(n=>parent.append(n)));board.classList.add('hidden');enabled=false;try{localStorage.removeItem(storageKey);localStorage.removeItem(olderKey)}catch{}text('#layout-state','Default layout');resizeMaps()};
+ try{const data=JSON.parse(localStorage.getItem(storageKey)||localStorage.getItem(olderKey)||'null');if(data&&Array.isArray(data.order)){custom(data);setEditing(false)}}catch{}
 })();

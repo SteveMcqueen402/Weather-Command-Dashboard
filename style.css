@@ -409,3 +409,32 @@ input,select{background:#0b111b!important;color:#fff!important;border-color:#466
 .layout-instruction{font-size:11px;color:#fecb8e;margin:0 0 10px}
 @media(max-width:1100px){.custom-board>.panel,.custom-board>.panel[data-span]{grid-column:span 6}}
 @media(max-width:680px){.custom-board>.panel,.custom-board>.panel[data-span]{grid-column:span 12}.personalize-label{width:100%}.custom-board>.map-panel .map-area{min-height:320px;height:320px}.custom-board>.panel[data-span="8"].map-panel .map-area{height:320px}}
+
+/* v1.3 configurable chart maps + flexible panel grid */
+.home-airport-control{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px solid #36556e;background:#141a21;border-radius:8px;padding:7px 9px;min-width:245px}
+.home-airport-control label{font-size:10px;font-weight:850;letter-spacing:.6px;color:#53e3fd}
+.home-airport-control input{width:75px!important;min-height:32px!important;background:#090d12!important;color:#fff;font-weight:800;border:1px solid #366781;border-radius:5px;padding:5px;text-transform:uppercase}
+.home-airport-control button{background:#156fc4;color:#fff;border:0;border-radius:5px;padding:7px;font-size:11px;white-space:nowrap}
+#home-airport-status{width:100%;color:#aad2e6;font-size:10px}
+.map-style-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:-2px 0 9px;padding:7px 10px;background:#0d1821;border:1px solid #365166;border-radius:6px}
+.map-style-bar label{color:#67e4ff;font-weight:850;letter-spacing:.5px;font-size:10px}
+.map-style-bar select{width:auto;min-width:160px;padding:6px 8px;font-size:12px;color:#fff;border:1px solid #39a1d3;background:#091823}
+#map-style-note,.route-map-style-note{font-size:10px;color:#afc4d4}
+.layout-hint{font-size:11px;color:#9bcbe4;flex:1}
+.custom-board{grid-template-columns:repeat(12,minmax(0,1fr))}
+.custom-board>.panel[data-span]{grid-column:span var(--custom-span,4)}
+.custom-board>.panel[data-span="2"]{grid-column:span 2}.custom-board>.panel[data-span="3"]{grid-column:span 3}.custom-board>.panel[data-span="4"]{grid-column:span 4}.custom-board>.panel[data-span="5"]{grid-column:span 5}.custom-board>.panel[data-span="6"]{grid-column:span 6}.custom-board>.panel[data-span="7"]{grid-column:span 7}.custom-board>.panel[data-span="8"]{grid-column:span 8}.custom-board>.panel[data-span="9"]{grid-column:span 9}.custom-board>.panel[data-span="10"]{grid-column:span 10}.custom-board>.panel[data-span="11"]{grid-column:span 11}.custom-board>.panel[data-span="12"]{grid-column:span 12}
+.layout-controls{align-items:flex-start;gap:8px;flex-direction:column}
+.layout-controls .drag-handle{border:1px dashed #55c1f7;padding:4px 10px;border-radius:5px;cursor:grab}
+.layout-controls .layout-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;width:100%}
+.layout-tool{display:flex;align-items:center;gap:5px;font-size:10px;color:#7ae7ff}
+.layout-tool select{width:auto;max-width:130px;padding:4px;background:#0b1620;color:white}
+.layout-slider{display:inline-flex;align-items:center;gap:4px}
+.layout-slider input{width:95px;accent-color:#44ceef}
+.layout-slider output{min-width:35px;color:#ffe19d}
+.layout-editing .custom-board>.panel{resize:vertical;overflow:auto}
+@media(max-width:1100px){.custom-board>.panel[data-span]{grid-column:span 6!important}.home-airport-control{flex:1}}
+@media(max-width:680px){.custom-board>.panel[data-span]{grid-column:span 12!important}.layout-hint{display:none}.map-style-bar select{min-width:120px}}
+
+.custom-board>.map-panel[data-panel-height] .map-area{height:calc(var(--user-panel-height) - 125px)!important;min-height:130px!important}
+.custom-board>.route-map-panel[data-panel-height] .route-weather-map{height:calc(var(--user-panel-height) - 170px)!important;min-height:130px!important}
