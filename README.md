@@ -46,3 +46,11 @@ These linked sections are a starting point, **not yet custom interactive model v
 
 ## Limitations
 Weather feeds can be temporarily unavailable or rate-limited. Radar uses RainViewer's historical tiles, not future precipitation predictions. NWS severe alerts are state-scoped to Nebraska. Client-side NOAA NWS forecast requests are subject to upstream availability. No saved settings, push notifications, radar animation, full GRIB model rendering, or flight risk scoring yet.
+
+## v0.2 Chart update
+- NOAA WPC surface-analysis charts displayed in dashboard, subject to external provider image access.
+- SPC Day 1 / Day 2 / Day 3 convective outlook charts with day selector.
+- KOMA observation time formatted for Central Time.
+- OpenStreetMap standard basemap without CARTO key overlay.
+- External sources may temporarily block image embedding; fallback links remain available.
+- HRRR/GFS and winds aloft remain external resource links, not integrated model visualizations.
