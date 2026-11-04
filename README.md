@@ -63,3 +63,16 @@ Official charts may restrict cross-origin embedding. The app offers direct links
 - Color-coded VFR/MVFR/IFR/LIFR/unknown airport pins, popups, connecting line, radar checkbox and enlarged map.
 - The latest v0.7.1 official-chart proxy fixes are retained.
 - Weather observations are airport-only and not weather forecasts between the airports. The depicted line is not a validated aviation route.
+
+
+## Version 0.8 — graphical flight planner
+- Restyled the existing one-page dashboard to closely follow the approved visual mockup while retaining the functional route, airport, radar, and chart components.
+- Compact four-condition tiles, prominent main radar/chart map, aviation and winds left rail, flight-planning and forecast right rail, bottom quick-link tiles.
+- Added real official NOAA AWC FB winds/temps via `/api/winds-aloft?station=OMA&fcst=06` (also 12, 24 hr); selector and enlarged wind profile.
+- Forecast station/cycle availability is not guaranteed. If AWC is unavailable, the app does **not** manufacture weather values; it shows an error and the official source link.
+- Winds-aloft data is for a nearby *forecast station*, not point forecasts for every airport.
+- Forecast model cards remain clearly labeled links to official HRRR and GFS products; no invented model images or winds.
+- Route lines and estimates are simplified; not approved navigation or a substitute for briefing.
+
+### Local validation
+Run `WCD_WIND_TEST=1 node server.mjs` to validate the wind table decoder fixture. Run `npm start` to serve the dashboard.

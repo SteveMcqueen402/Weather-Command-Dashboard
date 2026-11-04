@@ -12,6 +12,42 @@ async function upstream(url,ttl=60000){
   if(!res.ok)throw Error(`Upstream service returned ${res.status}`);
   const value=await res.json();cache.set(url,{value,at:Date.now()});return value;
 }
+// AWC publishes legacy FB winds/temperatures as fixed-width/text station rows.
+// This endpoint is distinct from the JSON METAR/TAF endpoints.
+const windTableCache=new Map();
+async function readWindTable(fcst){
+  const existing=windTableCache.get(fcst);
+  if(existing&&Date.now()-existing.at<900000)return existing.text;
+  const url=`https://aviationweather.gov/api/data/windtemp?region=us&level=low&fcst=${fcst}`;
+  const response=await fetch(url,{headers:{'User-Agent':'WeatherCommandDashboard/0.8 (aviation planning)','Accept':'text/plain'},signal:AbortSignal.timeout(14000)});
+  if(!response.ok)throw Error(`AWC wind/temp source returned HTTP ${response.status}`);
+  const text=await response.text();
+  if(!/\bFT\s+3000/.test(text)||text.length<100)throw Error('Wind/temperature forecast table unavailable');
+  windTableCache.set(fcst,{text,at:Date.now()});return text;
+}
+function decodeFB(code,altitude){
+  if(!/^\d{4}(?:[+-]\d{2}|\d{2})?$/.test(code))return null;
+  const d=Number(code.slice(0,2)),s=Number(code.slice(2,4));
+  if(d===99)return{altitude,direction:null,speed:0,tempC:null,calm:true,raw:code};
+  let direction=d*10,speed=s;
+  if(d>=50){direction=(d-50)*10;speed+=100;}
+  // FB table omits temperatures at 3000 ft, and below 24000 ft may use a sign.
+  let tempC=null;
+  if(code.length>4){const raw=code.slice(4);if(/^[+-]\d{2}$/.test(raw))tempC=Number(raw);else if(/^\d{2}$/.test(raw))tempC=altitude>=24000?-Number(raw):Number(raw);}
+  return {altitude,direction,speed,tempC,calm:false,raw:code};
+}
+function parseWinds(raw,station){
+  const lines=raw.split(/\r?\n/);
+  const head=lines.find(x=>/\bFT\s+3000\b/.test(x));
+  if(!head)throw Error('FB forecast levels missing');
+  const levels=[...head.matchAll(/\b(3000|6000|9000|12000|18000|24000|30000|34000|39000)\b/g)].map(m=>Number(m[1]));
+  const line=lines.find(x=>new RegExp('^\\s*'+station+'\\s+\\d{4}').test(x));
+  if(!line)return {station,levels,rows:[],available:false};
+  const cols=line.trim().split(/\s+/).slice(1);
+  const rows=cols.map((v,i)=>decodeFB(v,levels[i])).filter(Boolean);
+  return {station,levels,rows,available:rows.length>0};
+}
+
 const apis={
   points:()=>['https://api.weather.gov/points/41.2565,-95.9345',3600000],
   alerts:()=>['https://api.weather.gov/alerts/active?area=NE',60000],
@@ -59,6 +95,19 @@ const server=http.createServer(async(req,res)=>{
       res.writeHead(200,{'Content-Type':chart.mime,'Cache-Control':'public, max-age=300','X-Content-Type-Options':'nosniff'});res.end(chart.bytes);return;
     }
     if(u.pathname==='/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({status:'ok'}));return;}
+    if(u.pathname==='/api/winds-aloft'){
+      const fcst=u.searchParams.get('fcst')||'06';
+      const station=(u.searchParams.get('station')||'OMA').toUpperCase();
+      if(!['06','12','24'].includes(fcst)||!/^[A-Z]{3}$/.test(station)){
+        res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Invalid forecast hour or station'}));return;
+      }
+      const raw=await readWindTable(fcst);
+      const parsed=parseWinds(raw,station);
+      const lines=raw.split(/\r?\n/).slice(0,12);
+      const header=lines.filter(x=>/DATA BASED|VALID|FOR USE|TEMPS NEG/i.test(x)).map(x=>x.trim());
+      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=300'});
+      res.end(JSON.stringify({...parsed,fcst,header,source:'NOAA Aviation Weather Center FB Winds/Temps',retrievedAt:new Date().toISOString()}));return;
+    }
     if(u.pathname==='/api/airport-route'){
       const raw=(u.searchParams.get('ids')||'').toUpperCase().split(/[\s,;>-]+/).filter(Boolean);
       if(!raw.length||raw.length>12||raw.some(id=>!/^[A-Z0-9]{3,4}$/.test(id))){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Enter 1–12 valid 3- or 4-character airport identifiers.'}));return;}
@@ -106,4 +155,4 @@ const server=http.createServer(async(req,res)=>{
     const content=await fs.readFile(filename);
     res.writeHead(200,{'Content-Type':types[path.extname(filename)]||'application/octet-stream'});res.end(content);
   }catch(err){res.writeHead(err.code==='ENOENT'?404:502,{'Content-Type':'application/json'});res.end(JSON.stringify({error:err.message}));}
-});server.listen(port,'0.0.0.0',()=>console.log(`Weather Command Dashboard on ${port}`));
+});if(process.env.WCD_WIND_TEST==='1'){const sample='DATA BASED ON 061800Z\n VALID 070000Z FOR USE 2000-0300Z\n FT 3000 6000 9000 12000 18000 24000 30000 34000 39000\n OMA 2313 2512+02 2811-02 3116-09 3336-22 3546-33 355949 355659 312855';const result=parseWinds(sample,'OMA');if(result.rows.length!==9||result.rows[1].tempC!==2||result.rows[7].tempC!==-59)throw Error('Wind parser fixture failed');console.log('Wind parser fixture passed');}else server.listen(port,'0.0.0.0',()=>console.log(`Weather Command Dashboard on ${port}`));
