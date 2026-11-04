@@ -507,3 +507,12 @@ body:not(.free-layout-active) .bottom-grid{display:grid!important}
 .notam-item pre{font:11px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;color:#e5eef7;background:#090f18;padding:9px;border-radius:4px}
 .notam-pagination{display:flex;align-items:center;gap:10px;padding:7px 0}
 .notam-modal-list{max-height:70vh;overflow:auto;display:grid;gap:10px}
+
+/* v1.7 compact five-tile strip; sharp radar rendering selector */
+.stats{grid-template-columns:repeat(5,minmax(0,1fr))!important}
+.radar-quality{display:inline-flex;gap:5px;align-items:center;font-size:10px;color:#a9c8db}
+.radar-quality select{font-size:11px;max-width:95px;padding:4px 5px;background:#111b29;border:1px solid #467085;border-radius:5px;color:#f5f9ff}
+@media(max-width:1050px){.stats{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
+@media(max-width:650px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+.bottom-grid{grid-template-columns:1fr 1fr!important}
+@media(max-width:720px){.bottom-grid{grid-template-columns:1fr!important}}

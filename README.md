@@ -117,3 +117,13 @@ The dark navy base remains, with much darker black header and background, strong
 - If missing credentials, unauthorized access, rate limiting, or an upstream outage occurs, the panel clearly displays that notices are unavailable—never a fictitious zero-notices or live list.
 - The service caches the provider's response for 2 minutes and fetches up to 20 records/page.
 - NOTAC is an FAA-derived **third-party** service; for complete, current preflight notices and related NOTAMs/TFRs always cross-check with an official briefing.
+
+
+## v1.7 — streamlined weather center
+- Removed the duplicate Route Weather Map panel. Route plotting remains in WEATHER MAP CENTER > Route map.
+- Removed the standalone convective weather card and its map tab, and removed the forecast models card.
+- Added a movable/resizable **dew point** tile based on the selected airport METAR (°C).
+- NOTAMs: fixed double fetching and ensured explicit timeout/provider errors. **Live listings still REQUIRE authorized NOTAC_API_KEY on Render.** Without a working provider token, the app displays unavailable, not an invented count.
+- Radar: optional sharp/smoothed rendering, 512-pixel tiles, delayed removal of old tiles to reduce flashing, and slower animation updates to reduce unnecessary requests. The underlying RainViewer dataset remains limited to max zoom 7 and ~10-minute frames; 512px tiles do not create new meteorological detail.
+- Existing personal arrangements will reset once to account for removed/added panels.
+- Use as a planning aid only; check official aviation weather, charts, NOTAMs and briefings.
