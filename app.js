@@ -29,7 +29,7 @@ function setTab(group,selected){$$(`[data-${group}]`).forEach(el=>el.classList.t
 function showModal(title,content,source){text('#modal-title',title);const container=$('#modal-content');container.replaceChildren();if(typeof content==='string')container.innerHTML=content;else if(content)container.append(content);const l=$('#modal-link');l.href=source||'#';l.classList.toggle('hidden',!source);$('#modal').classList.remove('hidden');$('#modal-close').focus()}
 function closeModal(){if(current.modalMap){current.modalMap.remove();current.modalMap=null;current.modalRouteLayer=null;current.modalRouteRadarLayer=null}$('#modal').classList.add('hidden');$('#modal-content').replaceChildren()}
 $('#modal-close').addEventListener('click',closeModal);$('#modal').addEventListener('click',e=>{if(e.target===$('#modal'))closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
-function openChart(key){const c=charts[key];if(!c)return;const wrap=document.createElement('div');const img=document.createElement('img');img.src=c.image+'?v='+Math.floor(Date.now()/900000);img.alt=c.name;img.onerror=()=>{img.style.display='none';const p=document.createElement('p');p.className='source-note';p.textContent='Official chart temporarily unavailable. Open the WPC/SPC source using the link above.';wrap.append(p)};wrap.append(img);showModal(c.name,wrap,c.source)}
+function openChart(key){const c=charts[key];if(!c)return;const wrap=document.createElement('div');const img=document.createElement('img');img.src=c.image+(c.image.includes('?')?'&':'?')+'v='+Math.floor(Date.now()/900000);img.alt=c.name;img.onerror=()=>{img.style.display='none';const p=document.createElement('p');p.className='source-note';p.textContent='Official chart temporarily unavailable. Open the WPC/SPC source using the link above.';wrap.append(p)};wrap.append(img);showModal(c.name,wrap,c.source)}
 $$('[data-open-chart]').forEach(el=>el.addEventListener('click',()=>openChart(el.dataset.openChart)));
 function scrollToPanel(id){document.getElementById(id)?.scrollIntoView({behavior:'smooth',block:'center'})}
 $$('[data-detail]').forEach(el=>el.addEventListener('click',()=>scrollToPanel(el.dataset.detail)));
@@ -39,7 +39,7 @@ function latestRadarFrame(){const a=current.radar?.radar?.past||[];return a.leng
 function addRadarLayer(map){const frame=latestRadarFrame();if(!frame)return null;const url=`${current.radar.host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;const l=L.tileLayer(url,{maxNativeZoom:7,maxZoom:18,opacity:.78,attribution:'Radar © RainViewer'}).addTo(map);text('#map-caption','Radar observation: '+dateTime(frame.time));return l}
 function removeMainLayers(){if(current.mapLayer){current.map.removeLayer(current.mapLayer);current.mapLayer=null}if(current.routeLayer){current.map.removeLayer(current.routeLayer);current.routeLayer=null}}
 function drawRouteOn(map){const pts=current.route.filter(p=>p.coords);const group=L.layerGroup().addTo(map);if(pts.length){const coords=pts.map(x=>x.coords);pts.forEach(p=>{const name=htmlEscape(p.id), report=htmlEscape(p.metar?.rawOb||'METAR unavailable');L.marker(p.coords).addTo(group).bindPopup(`<strong>${name}</strong><p>${report}</p>`)});if(coords.length>1)L.polyline(coords,{color:'#55d9ff',weight:4,dashArray:'8 6'}).addTo(group);if(coords.length>1)map.fitBounds(L.latLngBounds(coords).pad(.18));else map.setView(coords[0],8)}else{L.marker(homeCoords()).bindPopup(current.homeId).addTo(group);map.setView(homeCoords(),current.mapStyle==='sectional'?8:6)}return group}
-function mapMode(mode){setTab('map',mode);$('#play-radar').classList.toggle('hidden',mode!=='radar');$('#map-chart').classList.add('hidden');$('#main-map').classList.remove('hidden');$('#chart-unavailable').classList.add('hidden');removeMainLayers();if(mode==='radar'){current.map.setView(homeCoords(),current.mapStyle==='sectional'?8:6);current.mapLayer=addRadarLayer(current.map);$('#map-source').href='https://radar.weather.gov/';text('#map-source','NOAA radar ↗')}else if(mode==='route'){current.routeLayer=drawRouteOn(current.map);if(current.routeRadarOn)current.mapLayer=addRadarLayer(current.map);text('#map-caption','Straight-line planning display; not an approved flight route');$('#map-source').href='https://aviationweather.gov/';text('#map-source','Aviation Weather Center ↗');}else{const c=charts[mode];if(!c)return;$('#main-map').classList.add('hidden');$('#map-chart').classList.remove('hidden');const image=$('#map-chart-image');image.style.display='block';image.src=c.image+'?v='+Math.floor(Date.now()/900000);image.alt=c.name;image.onerror=()=>{image.style.display='none';$('#chart-unavailable').classList.remove('hidden')};$('#map-source').href=c.source;text('#map-source','Official source ↗');text('#map-caption',c.name+' · verify analysis/valid time on chart')}if(mode==='radar'||mode==='route')setTimeout(()=>current.map.invalidateSize(),100)}
+function mapMode(mode){setTab('map',mode);$('#play-radar').classList.toggle('hidden',mode!=='radar');$('#map-chart').classList.add('hidden');$('#main-map').classList.remove('hidden');$('#chart-unavailable').classList.add('hidden');removeMainLayers();if(mode==='radar'){current.map.setView(homeCoords(),current.mapStyle==='sectional'?8:6);current.mapLayer=addRadarLayer(current.map);$('#map-source').href='https://radar.weather.gov/';text('#map-source','NOAA radar ↗')}else if(mode==='route'){current.routeLayer=drawRouteOn(current.map);if(current.routeRadarOn)current.mapLayer=addRadarLayer(current.map);text('#map-caption','Straight-line planning display; not an approved flight route');$('#map-source').href='https://aviationweather.gov/';text('#map-source','Aviation Weather Center ↗');}else{const c=charts[mode];if(!c)return;$('#main-map').classList.add('hidden');$('#map-chart').classList.remove('hidden');const image=$('#map-chart-image');image.style.display='block';image.src=c.image+(c.image.includes('?')?'&':'?')+'v='+Math.floor(Date.now()/900000);image.alt=c.name;image.onerror=()=>{image.style.display='none';$('#chart-unavailable').classList.remove('hidden')};$('#map-source').href=c.source;text('#map-source','Official source ↗');text('#map-caption',c.name+' · verify analysis/valid time on chart')}if(mode==='radar'||mode==='route')setTimeout(()=>current.map.invalidateSize(),100)}
 $$('[data-map]').forEach(btn=>btn.addEventListener('click',()=>mapMode(btn.dataset.map)));
 function modalMap(){const node=document.createElement('div');node.className='modal-map';showModal('Regional Radar / Route Map',node,'https://radar.weather.gov/');current.modalMap=makeMap(node,7);if($('.tab.active')?.dataset.map==='route'){drawRouteOn(current.modalMap);if(current.routeRadarOn)addRadarLayer(current.modalMap)}else addRadarLayer(current.modalMap);setTimeout(()=>current.modalMap?.invalidateSize(),150)}
 $('#expand-map').onclick=()=>{const active=$('.tab.active')?.dataset.map;if(charts[active])openChart(active);else modalMap()};$('#map-full').onclick=$('#expand-map').onclick;
@@ -51,7 +51,7 @@ function aviationTab(tab){setTab('aviation',tab);$('#aviation-raw').classList.to
 $$('[data-aviation]').forEach(b=>b.onclick=()=>aviationTab(b.dataset.aviation));
 async function loadAviation(){try{const d=await fetchJSON('/api/airport-route?ids='+encodeURIComponent(current.homeId));const m=d.metars?.find(x=>codeOf(x)===current.homeId)||null;const t=d.tafs?.find(x=>codeOf(x)===current.homeId)||null;current.metar=m;current.taf=t;text('#wind',m?.wspd!=null?m.wspd+' kt':'—');text('#windinfo',m?.wdir!=null?`${m.wdir}°${m.wgst?` · gust ${m.wgst} kt`:''}`:'Wind direction unavailable');text('#flightcat',m?.fltCat||'—');text('#flightdetail',m?.visib!=null?`Visibility ${m.visib} SM`:'Category/visibility unavailable');$('#flightcat').style.color=({VFR:'#57e69e',MVFR:'#7ebdff',IFR:'#ff6873',LIFR:'#e88eff'})[m?.fltCat]||'';text('#aviation-time','Observed '+dateTime(m?.obsTime));aviationTab($('.pill.active')?.dataset.aviation||'metar');if(!m)status(current.homeId+' METAR unavailable; not every airport publishes observations.')}catch(err){status('Aviation observations unavailable: '+err.message)}}
 async function loadForecastSummary(){try{const c=homeCoords();const r=await fetchJSON('/api/location-forecast?lat='+c[0]+'&lon='+c[1]);current.forecast=r;const p=r?.periods?.[0];text('#temp',p?.temperature!=null?`${p.temperature}°${p.temperatureUnit||'F'}`:'—');text('#conditions',p?.shortForecast||'NWS forecast unavailable')}catch(err){text('#conditions','NWS forecast unavailable')}}
-async function loadAlerts(){try{const c=homeCoords();const d=await fetchJSON('/api/home-alerts?lat='+c[0]+'&lon='+c[1]);const items=d?.features||[];current.alerts=items;text('#alerts-count',items.length);text('#alerts-label',items.length?'NWS alerts near '+current.homeId:'No NWS alerts near '+current.homeId);const host=$('#alerts-list');host.replaceChildren();if(!items.length){host.textContent='No current NWS alerts for '+current.homeId+'.';return}items.slice(0,15).forEach(a=>{const box=document.createElement('div');box.className='alert';const title=document.createElement('strong');title.textContent=a.properties?.event||'Weather alert';const detail=document.createElement('small');detail.textContent=a.properties?.areaDesc||'';box.append(title,detail);host.append(box)})}catch(err){text('#alerts-count','—');text('#alerts-list','NWS alerts unavailable: '+err.message)}}
+async function loadAlerts(){try{const c=homeCoords();const d=await fetchJSON('/api/home-alerts?lat='+c[0]+'&lon='+c[1]);const items=d?.features||[];current.alerts=items;const host=$('#alerts-list');host.replaceChildren();if(!items.length){host.textContent='No current NWS alerts for '+current.homeId+'.';return}items.slice(0,15).forEach(a=>{const box=document.createElement('div');box.className='alert';const title=document.createElement('strong');title.textContent=a.properties?.event||'Weather alert';const detail=document.createElement('small');detail.textContent=a.properties?.areaDesc||'';box.append(title,detail);host.append(box)})}catch(err){text('#alerts-list','NWS alerts unavailable: '+err.message)}}
 function normalize(code){const c=String(code||'').trim().toUpperCase();if(!/^[A-Z0-9]{3,4}$/.test(c))throw Error('Enter a 3- or 4-character airport identifier');return c.length===3?'K'+c:c}
 function coordsOf(x){const lat=Number(x?.lat??x?.latitude??x?.latitude_deg??x?.latDecimal),lon=Number(x?.lon??x?.longitude??x?.longitude_deg??x?.lonDecimal);return Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180?[lat,lon]:null}
 function codeOf(x){return String(x?.icaoId??x?.icao??x?.id??x?.ident??x?.stationId??'').toUpperCase()}
@@ -187,6 +187,7 @@ function refreshHomeLabels(){
  const title=$('#airport-section .panelhead h2');if(title)title.textContent='✈ '+current.homeId+' AVIATION';
  $('#quick-from').value=current.homeId;$('#route-from').value=current.homeId;
  const forecast=$('#forecast-select');if(forecast){forecast.replaceChildren();const option=document.createElement('option');option.value=current.homeId;option.textContent=current.homeId+' · home';forecast.append(option)}
+ text('#notam-home-id',current.homeId);text('#notam-panel-airport',current.homeId);text('#notam-airport-code',current.homeId);text('#notam-summary','Search FAA notices for '+current.homeId);
  const label=document.querySelector('.stat:nth-child(2) .stathead span');if(label)label.textContent='WINDS AT '+current.homeId;
  const windStations=$('#wind-station');if(windStations){const short=current.homeId.slice(1);if([...windStations.options].some(x=>x.value===short))windStations.value=short}
 }
@@ -253,48 +254,124 @@ if(routeToggle&&routeEditor){
 }
 
 
-// v1.3 dashboard arranger: exact grid placement, width+height editing, accessible move controls.
-(function configurePanelLayout(){
- const board=$('#custom-board'),toggle=$('#layout-toggle'),reset=$('#layout-reset');if(!board||!toggle||!reset)return;
- const ids=['airport-section','wind-section','charts-section','route-section','route-weather-panel','forecast-section','model-section','surface-panel','convective-panel','alert-section'];
- const nodes=ids.map(id=>document.getElementById(id)).filter(Boolean);
- const original=new Map(nodes.map(n=>[n.id,{parent:n.parentElement,index:[...n.parentElement.children].indexOf(n)}]));
- const storageKey='wc-layout-v13';const olderKey='weather-command-layout-v12';
- const defaults={'charts-section':7,'airport-section':3,'wind-section':3,'route-section':4,'route-weather-panel':4,'forecast-section':4,'model-section':4,'surface-panel':4,'convective-panel':4,'alert-section':4};
- let enabled=false,editing=false,dragged=null;
- function resizeMaps(){requestAnimationFrame(()=>setTimeout(()=>{for(const m of mapsRegistry){try{m.invalidateSize()}catch{}}},100))}
- const getPanels=()=>[...board.children].filter(n=>nodes.includes(n));
- function save(){if(!enabled)return;try{localStorage.setItem(storageKey,JSON.stringify({order:getPanels().map(x=>x.id),widths:Object.fromEntries(nodes.map(n=>[n.id,Number(n.dataset.span)||4])),heights:Object.fromEntries(nodes.map(n=>[n.id,Number(n.dataset.panelHeight)||0]))}))}catch{}}
- function moveTo(n,index){const others=getPanels().filter(x=>x!==n);const point=others[Math.max(0,Math.min(index,others.length))];if(point)board.insertBefore(n,point);else board.append(n);save();resizeMaps();refreshControls()}
- function refreshControls(){getPanels().forEach((n,index)=>{const sel=n.querySelector('.layout-position');if(sel){sel.replaceChildren();getPanels().forEach((x,i)=>{const opt=document.createElement('option');opt.value=String(i);opt.textContent=(i+1)+'. '+(x.querySelector('h2')?.textContent||x.id);sel.append(opt)});sel.value=String(index)}const h=n.querySelector('.layout-height-output');if(h)h.textContent=(n.dataset.panelHeight||'Auto')+(n.dataset.panelHeight?'px':'')})}
- function setupControls(n){let el=n.querySelector(':scope > .layout-controls');if(el)return el;
-  el=document.createElement('div');el.className='layout-controls';el.hidden=true;
-  const grip=document.createElement('span');grip.className='drag-handle';grip.textContent='⠿ Drag';grip.draggable=true;grip.title='Drag this handle to another panel';
-  grip.addEventListener('dragstart',e=>{if(!editing){e.preventDefault();return}dragged=n;n.classList.add('dragging');e.dataTransfer.setData('text/plain',n.id);e.dataTransfer.effectAllowed='move'});
-  grip.addEventListener('dragend',()=>{dragged=null;n.classList.remove('dragging');nodes.forEach(x=>x.classList.remove('drop-target'))});
-  const tools=document.createElement('div');tools.className='layout-tools';
-  function control(label,element){const wrap=document.createElement('label');wrap.className='layout-tool';wrap.append(document.createTextNode(label),element);tools.append(wrap)}
-  const pos=document.createElement('select');pos.className='layout-position';pos.setAttribute('aria-label','Move '+n.id+' to panel position');pos.onchange=()=>moveTo(n,Number(pos.value));control('Position',pos);
-  const width=document.createElement('input');width.type='range';width.min='2';width.max='12';width.step='1';width.value=n.dataset.span||defaults[n.id]||4;width.title='Panel width: '+width.value+' of 12 columns';
-  const widthInfo=document.createElement('output');widthInfo.textContent=width.value+'/12';width.oninput=()=>{n.dataset.span=width.value;widthInfo.textContent=width.value+'/12';width.title='Panel width '+width.value+' columns';resizeMaps();save()};
-  const widthWrap=document.createElement('span');widthWrap.className='layout-slider';widthWrap.append(width,widthInfo);control('Width',widthWrap);
-  const height=document.createElement('input');height.type='range';height.min='160';height.max='850';height.step='10';height.value=n.dataset.panelHeight||'320';height.title='Panel height';
-  const heightInfo=document.createElement('output');heightInfo.className='layout-height-output';heightInfo.textContent=n.dataset.panelHeight?n.dataset.panelHeight+'px':'Auto';
-  height.oninput=()=>{n.dataset.panelHeight=height.value;n.style.minHeight=height.value+'px';n.style.setProperty('--user-panel-height',height.value+'px');heightInfo.textContent=height.value+'px';save();resizeMaps()};
-  const heightWrap=document.createElement('span');heightWrap.className='layout-slider';heightWrap.append(height,heightInfo);control('Height',heightWrap);
-  const auto=document.createElement('button');auto.type='button';auto.textContent='Auto height';auto.onclick=()=>{delete n.dataset.panelHeight;n.style.minHeight='';n.style.removeProperty('--user-panel-height');heightInfo.textContent='Auto';save();resizeMaps()};tools.append(auto);
-  const back=document.createElement('button');back.type='button';back.textContent='←';back.title='Move earlier';back.onclick=()=>moveTo(n,Math.max(0,getPanels().indexOf(n)-1));
-  const next=document.createElement('button');next.type='button';next.textContent='→';next.title='Move later';next.onclick=()=>moveTo(n,Math.min(getPanels().length-1,getPanels().indexOf(n)+1));
-  tools.append(back,next);el.append(grip,tools);n.prepend(el);
-  n.addEventListener('dragover',e=>{if(!editing||!dragged||dragged===n)return;e.preventDefault();n.classList.add('drop-target')});
-  n.addEventListener('dragleave',()=>n.classList.remove('drop-target'));
-  n.addEventListener('drop',e=>{if(!editing||!dragged||dragged===n)return;e.preventDefault();n.classList.remove('drop-target');const rect=n.getBoundingClientRect();const after=e.clientY>rect.top+rect.height/2;board.insertBefore(dragged,after?n.nextSibling:n);save();resizeMaps();refreshControls()});
-  return el;
+
+// NOAA SPC convective chart day selector (official NOAA categorical outlook map service).
+let activeConvectiveDay='1';
+function setConvectiveDay(day){
+ if(!['1','2','3'].includes(day))return;
+ activeConvectiveDay=day;
+ charts.convective.name='SPC Day '+day+' Convective Outlook';
+ charts.convective.image='/api/chart/convective?day='+day;
+ document.querySelectorAll('[data-day]').forEach(btn=>btn.classList.toggle('active',btn.dataset.day===day));
+ text('#convective-caption','Click to enlarge Day '+day+' SPC outlook');
+ const image=$('#convective-chart-img');
+ if(image){image.style.display='block';image.src=charts.convective.image+'&v='+Math.floor(Date.now()/600000);
+  image.onerror=()=>{image.style.display='none';text('#convective-chart-message','NOAA image unavailable from this connection. Open the official SPC outlook link below.');};
+  image.onload=()=>text('#convective-chart-message','Official NOAA SPC Day '+day+' categorical outlook. Check issued/valid times.');
  }
- function custom(data){enabled=true;board.classList.remove('hidden');const arranged=[...new Set([...(data?.order||[]),...ids])].map(id=>document.getElementById(id)).filter(n=>nodes.includes(n));
-  arranged.forEach(n=>{n.dataset.span=String(Math.min(12,Math.max(2,Number(data?.widths?.[n.id]??data?.sizes?.[n.id]??defaults[n.id])||4)));const ht=Number(data?.heights?.[n.id]||0);if(ht>=160&&ht<=850){n.dataset.panelHeight=String(ht);n.style.minHeight=ht+'px';n.style.setProperty('--user-panel-height',ht+'px')}board.append(n)});refreshControls();resizeMaps();text('#layout-state','Saved on this device')}
- function setEditing(value){editing=value;document.body.classList.toggle('layout-editing',value);toggle.textContent=value?'Done Arranging':'Arrange Panels';toggle.setAttribute('aria-pressed',String(value));nodes.forEach(n=>setupControls(n).hidden=!value);text('#layout-state',value?'Drag, resize or choose panel position':'Layout saved on this device');refreshControls();resizeMaps()}
- toggle.onclick=()=>{if(!enabled)custom(null);setEditing(!editing);save()};
- reset.onclick=()=>{if(!confirm('Restore default layout on this device?'))return;setEditing(false);nodes.forEach(n=>{n.querySelector(':scope > .layout-controls')?.remove();delete n.dataset.span;delete n.dataset.panelHeight;n.style.minHeight='';n.style.removeProperty('--user-panel-height')});const parents=[...new Set(nodes.map(n=>original.get(n.id).parent))];parents.forEach(parent=>nodes.filter(n=>original.get(n.id).parent===parent).sort((a,b)=>original.get(a.id).index-original.get(b.id).index).forEach(n=>parent.append(n)));board.classList.add('hidden');enabled=false;try{localStorage.removeItem(storageKey);localStorage.removeItem(olderKey)}catch{}text('#layout-state','Default layout');resizeMaps()};
- try{const data=JSON.parse(localStorage.getItem(storageKey)||localStorage.getItem(olderKey)||'null');if(data&&Array.isArray(data.order)){custom(data);setEditing(false)}}catch{}
+ if(document.querySelector('[data-map="convective"]')?.classList.contains('active'))mapMode('convective');
+}
+document.querySelectorAll('[data-day]').forEach(btn=>btn.addEventListener('click',()=>setConvectiveDay(btn.dataset.day)));
+setConvectiveDay('1');
+// The selected airport controls the official FAA NOTAM search entry point.
+function openOfficialNotams(){window.open('https://notams.aim.faa.gov/notamSearch/','_blank','noopener,noreferrer')}
+$('#notam-expand')?.addEventListener('click',openOfficialNotams);
+$('#copy-notam-airport')?.addEventListener('click',async()=>{
+ const id=current.homeId;try{await navigator.clipboard.writeText(id);text('#notam-summary',id+' copied — paste into FAA NOTAM Search location field')}catch{window.prompt('Copy airport identifier',id)}
+});
+
+// Freely positioned, resizable card canvas. Handles use Pointer Events for mouse, touch and pen.
+// Persist per browser; includes all four summary cards and every detailed panel.
+(function setupFreeLayout(){
+ const board=$('#custom-board'),toggle=$('#layout-toggle'),reset=$('#layout-reset');
+ if(!board||!toggle||!reset)return;
+ const ids=['temp','wind','flightcat','notam-home-id','airport-section','wind-section','charts-section','route-section','route-weather-panel','forecast-section','model-section','notam-section','surface-panel','convective-panel','alert-section'];
+ const tiles=ids.slice(0,4).map(id=>document.getElementById(id)?.closest('.stat')).filter(Boolean);
+ const details=ids.slice(4).map(id=>document.getElementById(id)).filter(Boolean);
+ const nodes=[...tiles,...details];
+ tiles.forEach((n,i)=>{n.id='tile-'+['forecast','wind','category','notam'][i]});
+ const originals=new Map(nodes.map(n=>({node:n,parent:n.parentElement,next:n.nextSibling})) .map(x=>[x.node,{parent:x.parent,next:x.next}]));
+ const key='weather-command-free-layout-v15';
+ let active=false,editing=false,interaction=null;
+ let raf=0;
+ const minW=185,minH=78;
+ const rectBoard=()=>board.getBoundingClientRect();
+ const maxRight=()=>Math.max(0,...nodes.map(n=>n.offsetLeft+n.offsetWidth));
+ const maxBottom=()=>Math.max(0,...nodes.map(n=>n.offsetTop+n.offsetHeight));
+ const refreshMaps=()=>{cancelAnimationFrame(raf);raf=requestAnimationFrame(()=>{setTimeout(()=>{for(const m of mapsRegistry){try{m.invalidateSize()}catch{}}},65)})};
+ function adjustBoard(){if(!active)return;board.style.minHeight=(maxBottom()+28)+'px'}
+ function state(){return {version:15,boardWidth:board.clientWidth,cards:nodes.map(n=>({id:n.id,x:n.offsetLeft,y:n.offsetTop,w:n.offsetWidth,h:n.offsetHeight,collapsed:n.classList.contains('card-collapsed'),openHeight:Number(n.dataset.openHeight)||0}))}}
+ function save(){if(!active)return;try{localStorage.setItem(key,JSON.stringify(state()))}catch{}adjustBoard()}
+ const clamp=(n,lo,hi)=>Math.max(lo,Math.min(hi,n));
+ function position(n,x,y,w,h){
+   const width=board.clientWidth||1100;
+   const proposedW=clamp(Math.round(w),Math.min(minW,width),width);
+   n.style.position='absolute';n.style.left=clamp(Math.round(x),0,Math.max(0,width-proposedW))+'px';n.style.top=Math.max(0,Math.round(y))+'px';
+   n.style.width=proposedW+'px';n.style.height=Math.max(minH,Math.round(h))+'px';
+ }
+ function measuredLayout(){
+   const base=rectBoard(), mainRect=board.parentElement.getBoundingClientRect();
+   let fallback=0;
+   return nodes.map(n=>{
+     const r=n.getBoundingClientRect();
+     if(r.width<5||r.height<5){const y=fallback;fallback+=240;return {n,x:0,y,w:Math.min(board.clientWidth,370),h:220}}
+     return {n,x:r.left-mainRect.left,y:r.top-base.top,w:r.width,h:r.height};
+   });
+ }
+ function enter(saved){
+   if(active)return;board.classList.remove('hidden');const measurements=measuredLayout();
+   document.body.classList.add('free-layout-active');
+   nodes.forEach(n=>board.appendChild(n));active=true;
+   const data=new Map((saved?.cards||[]).map(x=>[x.id,x]));const scale=saved?.boardWidth>0?board.clientWidth/saved.boardWidth:1;
+   let safetyY=0;
+   for(const m of measurements){const c=data.get(m.n.id);let x=c?c.x*scale:m.x,y=c?c.y:m.y,w=c?c.w*scale:m.w,h=c?c.h:m.h;
+     if(!Number.isFinite(y)||y<0||(!c&&m.w<10)){y=safetyY;x=0;w=300;h=240}
+     position(m.n,x,y,w,h);safetyY=Math.max(safetyY,y+h+12);
+     if(c?.collapsed){m.n.dataset.openHeight=String(c.openHeight||h);m.n.classList.add('card-collapsed');m.n.style.height='56px'}
+   }
+   nodes.forEach(addControls);adjustBoard();refreshMaps();text('#layout-state','Custom layout saved on this device');
+ }
+ function addControls(n){if(n.querySelector(':scope > .free-controls'))return;
+   const toolbar=document.createElement('div');toolbar.className='free-controls';
+   const drag=document.createElement('div');drag.className='free-grip';drag.tabIndex=0;drag.title='Drag to move panel';drag.textContent='⠿ MOVE';
+   const collapse=document.createElement('button');collapse.type='button';collapse.className='free-collapse';collapse.title='Collapse or expand panel';collapse.textContent=n.classList.contains('card-collapsed')?'+':'−';
+   const handle=document.createElement('div');handle.className='free-resize';handle.title='Drag corner to resize width and height';handle.setAttribute('role','separator');handle.setAttribute('aria-label','Resize panel');
+   collapse.addEventListener('click',e=>{e.stopPropagation();const shrinking=!n.classList.contains('card-collapsed');if(shrinking){n.dataset.openHeight=n.offsetHeight;n.classList.add('card-collapsed');n.style.height='56px';collapse.textContent='+'}
+      else{n.classList.remove('card-collapsed');n.style.height=Math.max(150,Number(n.dataset.openHeight)||230)+'px';collapse.textContent='−'}save();refreshMaps()});
+   for(const [target,mode] of [[drag,'move'],[handle,'resize']]){
+     target.addEventListener('pointerdown',e=>{
+       if((mode==='move'&&!editing)||e.button!==0)return;e.preventDefault();e.stopPropagation();
+       interaction={id:e.pointerId,n,mode,startX:e.clientX,startY:e.clientY,x:n.offsetLeft,y:n.offsetTop,w:n.offsetWidth,h:n.offsetHeight};
+       n.style.zIndex='20';target.setPointerCapture(e.pointerId);document.body.classList.add('free-drag-active');
+     });
+     target.addEventListener('pointermove',e=>{
+       if(!interaction||interaction.id!==e.pointerId||interaction.n!==n)return;
+       e.preventDefault();const k=interaction,dx=e.clientX-k.startX,dy=e.clientY-k.startY;
+       if(k.mode==='move')position(n,k.x+dx,k.y+dy,k.w,k.h);
+       else{if(n.classList.contains('card-collapsed')){n.classList.remove('card-collapsed');n.style.height=Math.max(150,Number(n.dataset.openHeight)||200)+'px';collapse.textContent='−'}position(n,k.x,k.y,k.w+dx,k.h+dy)}
+       adjustBoard();refreshMaps();
+     });
+     const stop=e=>{if(!interaction||interaction.id!==e.pointerId||interaction.n!==n)return;n.style.zIndex='';interaction=null;document.body.classList.remove('free-drag-active');save();refreshMaps()};
+     target.addEventListener('pointerup',stop);target.addEventListener('pointercancel',stop);
+   }
+   drag.addEventListener('keydown',e=>{if(!editing)return;const dirs={ArrowLeft:[-16,0],ArrowRight:[16,0],ArrowUp:[0,-16],ArrowDown:[0,16]};if(!dirs[e.key])return;e.preventDefault();position(n,n.offsetLeft+dirs[e.key][0],n.offsetTop+dirs[e.key][1],n.offsetWidth,n.offsetHeight);save()});
+   toolbar.append(drag,collapse);n.append(toolbar,handle);
+ }
+ function setEditing(v){editing=v;document.body.classList.toggle('free-layout-editing',v);toggle.textContent=v?'Done Arranging':'Arrange Panels';toggle.setAttribute('aria-pressed',String(v));text('#layout-state',v?'Drag MOVE handle; pull lower-right corner to resize; − collapses':'Custom layout saved on this device');refreshMaps()}
+ toggle.addEventListener('click',()=>{if(!active)enter(null);setEditing(!editing);save()});
+ reset.addEventListener('click',()=>{
+   if(!window.confirm('Restore original dashboard arrangement on this device?'))return;
+   setEditing(false);nodes.forEach(n=>{
+     n.querySelector(':scope > .free-controls')?.remove();n.querySelector(':scope > .free-resize')?.remove();
+     n.classList.remove('card-collapsed');n.removeAttribute('style');delete n.dataset.openHeight;
+   });
+   nodes.forEach(n=>{const o=originals.get(n);if(o?.next&&o.next.parentNode===o.parent)o.parent.insertBefore(n,o.next);else o.parent.append(n)});
+   // original order is preserved by DOM for the four tiles, even after moving them into the custom canvas
+   const byParent=[...new Set(nodes.map(n=>originals.get(n).parent))];for(const parent of byParent){const part=nodes.filter(n=>originals.get(n).parent===parent);part.forEach((n)=>{const after=originals.get(n).next;if(after?.parentNode===parent)parent.insertBefore(n,after)})}
+   board.classList.add('hidden');board.style.minHeight='';document.body.classList.remove('free-layout-active');active=false;
+   try{localStorage.removeItem(key);localStorage.removeItem('wc-layout-v13');localStorage.removeItem('weather-command-layout-v12')}catch{}
+   text('#layout-state','Default layout');refreshMaps();
+ });
+ window.addEventListener('resize',()=>{if(!active||interaction)return;const bw=board.clientWidth;nodes.forEach(n=>{if(n.offsetLeft+n.offsetWidth>bw)position(n,Math.min(n.offsetLeft,Math.max(0,bw-n.offsetWidth)),n.offsetTop,Math.min(n.offsetWidth,bw),n.offsetHeight)});adjustBoard();refreshMaps()});
+ try{const saved=JSON.parse(localStorage.getItem(key)||'null');if(saved?.version===15&&Array.isArray(saved.cards)){enter(saved);setEditing(false)}}catch{}
 })();

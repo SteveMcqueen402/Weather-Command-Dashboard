@@ -61,7 +61,9 @@ const apis={
 const chartSources={
   surface:['https://www.wpc.ncep.noaa.gov/sfc/usfntsfc.gif',
            'https://www.wpc.ncep.noaa.gov/sfc/namussfcwbg.gif'],
-  convective:['https://www.spc.noaa.gov/products/outlook/day1otlk.gif']
+  convective:['https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/SPC_wx_outlks/MapServer/export?bbox=-125,24,-66,50&bboxSR=4326&imageSR=4326&size=1200,560&format=png32&transparent=false&f=image&layers=show:1','https://www.spc.noaa.gov/products/outlook/day1otlk.gif'],
+  'convective-2':['https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/SPC_wx_outlks/MapServer/export?bbox=-125,24,-66,50&bboxSR=4326&imageSR=4326&size=1200,560&format=png32&transparent=false&f=image&layers=show:9','https://www.spc.noaa.gov/products/outlook/day2otlk.gif'],
+  'convective-3':['https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/SPC_wx_outlks/MapServer/export?bbox=-125,24,-66,50&bboxSR=4326&imageSR=4326&size=1200,560&format=png32&transparent=false&f=image&layers=show:17','https://www.spc.noaa.gov/products/outlook/day3otlk.gif']
 };
 const chartCache=new Map();
 async function officialChart(key){
@@ -88,7 +90,8 @@ const server=http.createServer(async(req,res)=>{
   try{
     const u=new URL(req.url,`http://localhost:${port}`);
     if(u.pathname.startsWith('/api/chart/')){
-      const key=u.pathname.slice('/api/chart/'.length);
+      let key=u.pathname.slice('/api/chart/'.length);
+      if(key==='convective'){const day=u.searchParams.get('day')||'1';if(!['1','2','3'].includes(day)){res.writeHead(400);res.end('Invalid forecast day');return;}if(day!=='1')key='convective-'+day;}
       if(!Object.hasOwn(chartSources,key)){res.writeHead(404);res.end('Unknown chart');return;}
       const chart=await officialChart(key);
       if(!chart){res.writeHead(503,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'});res.end('Official chart image unavailable');return;}

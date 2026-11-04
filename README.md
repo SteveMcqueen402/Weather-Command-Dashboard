@@ -108,3 +108,11 @@ The dark navy base remains, with much darker black header and background, strong
 - Choose FAA VFR Sectional, Street Map or Satellite from the dashboard. Choice propagates to the route map and enlarged maps. FAA's sectional tile service can have limited chart/zoom coverage and may lag the latest chart edition; always verify effective chart date and NOTAMs.
 - Arrange panels in 12-column increments from 2 to 12 columns; reorder with drag handle, position menu or arrows; set minimum panel height 160–850 px. Persisted locally. Existing v1.2 layout preference is imported when present.
 - Controls do not sync between devices. Official weather and charts remain essential for flight planning; no operational routing or complete briefing capability.
+
+
+## v1.5 — Free-layout, FAA NOTAM entry, NOAA SPC convective repairs
+
+- Click Arrange Panels. Every panel **including the four top summary tiles** moves on a free-form canvas. Grab `⠿ MOVE`, drag to any pixel position, and resize by pulling the lower-right striped corner (mouse, pen, or touch). `−` collapses and `+` expands. Click Done Arranging to hide handles. Saves on this browser, not across devices. Reset Layout restores original display.
+- Home-airport NOTAM tile replaces the old NWS alert count tile. Opens FAA official NOTAM Search and offers Copy Airport ID. **No fake NOTAM counts**: the FAA NOTAM feed is not publicly accessible without approved credentials. The existing detailed NWS weather alerts panel is still available.
+- Convective charts now feature Day 1/2/3 selectors; their server-side image relay first requests official NOAA SPC ArcGIS categorical outlook renders and falls back to official SPC images if unavailable. The chart is not a depiction of all convective hazards; check official issued and valid times.
+- No aviation route validation or NOTAM completeness claim. Preflight users must use official briefing sources.

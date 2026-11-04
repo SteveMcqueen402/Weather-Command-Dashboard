@@ -438,3 +438,51 @@ input,select{background:#0b111b!important;color:#fff!important;border-color:#466
 
 .custom-board>.map-panel[data-panel-height] .map-area{height:calc(var(--user-panel-height) - 125px)!important;min-height:130px!important}
 .custom-board>.route-map-panel[data-panel-height] .route-weather-map{height:calc(var(--user-panel-height) - 170px)!important;min-height:130px!important}
+
+/* v1.5 true free-form layout canvas; no artificial grid row/column constraints */
+.free-layout-active .stats,.free-layout-active .wall,.free-layout-active .bottom-grid,.free-layout-active > .notam-panel{display:none!important}
+.free-layout-active .custom-board{display:block!important;position:relative;min-height:500px;margin:6px 0 12px;overflow:visible}
+.free-layout-active .custom-board > .panel,.free-layout-active .custom-board > .stat{display:block;position:absolute!important;grid-column:auto!important;min-width:0;min-height:0;box-sizing:border-box;overflow:hidden;touch-action:pan-y}
+.free-layout-active .custom-board .map-panel{display:flex!important;flex-direction:column}
+.free-layout-active .custom-board .map-area{min-height:120px!important;height:calc(100% - 110px)!important;flex:1}
+.free-layout-active .custom-board .route-weather-map{height:clamp(105px,45%,390px)!important}
+.free-layout-active .custom-board .route-map-panel{overflow:hidden}
+.free-layout-active .custom-board .stat{min-height:0!important}
+.free-controls{position:absolute;top:3px;right:6px;z-index:100;display:flex;align-items:center;gap:3px}
+.free-grip{cursor:grab;background:#174360;border:1px solid #64c8ff;border-radius:5px;padding:3px 6px;color:white;font-size:10px;font-weight:800;touch-action:none;user-select:none}
+.free-grip:active{cursor:grabbing}
+.free-collapse{background:#173349;border:1px solid #568bb3;border-radius:4px;color:#e8f6ff;font-size:16px;font-weight:900;line-height:1;padding:3px 7px;cursor:pointer}
+.free-resize{position:absolute;bottom:0;right:0;width:29px;height:29px;z-index:105;cursor:nwse-resize;touch-action:none;background:linear-gradient(135deg,transparent 0 45%,#52d4fc 46% 52%,transparent 53% 61%,#52d4fc 62% 67%,transparent 68%);border-radius:0 0 9px 0}
+.free-layout-active:not(.free-layout-editing) .free-resize,.free-layout-active:not(.free-layout-editing) .free-grip{display:none}
+.free-layout-active .panelhead{padding-right:78px}
+.free-layout-editing .custom-board>.panel,.free-layout-editing .custom-board>.stat{outline:1px dashed #62cafa;outline-offset:1px}
+.free-layout-editing .custom-board .panelhead h2{cursor:default}
+.free-layout-active .custom-board>.stat{padding-top:30px}
+.free-layout-active .custom-board>.stat .free-controls{top:4px}
+.free-layout-active .custom-board>.panel{padding-top:24px}
+.free-layout-active .custom-board>.panel>.free-controls{top:4px}
+.free-layout-active .custom-board .card-collapsed{overflow:hidden!important}
+.free-layout-active .custom-board .card-collapsed > :not(.panelhead):not(.stathead):not(.free-controls):not(.free-resize){display:none!important}
+.free-layout-active .custom-board .card-collapsed.map-panel{display:block!important}
+.free-layout-active .custom-board .card-collapsed .panelhead{margin-bottom:0}
+.free-layout-active .custom-board .card-collapsed .stathead{margin-top:0}
+.free-layout-active .custom-board .card-collapsed{min-height:0!important}
+.free-drag-active,.free-drag-active *{user-select:none!important}
+.notam-panel{margin:12px 0;border-color:#a5672b}
+.notam-hero{display:flex;gap:13px;align-items:center;color:#c7d7e9}
+.notam-icon{background:#ffab44;color:#1b1610;font-weight:900;border-radius:9px;padding:4px 16px;font-size:26px}
+.notam-hero strong{font-size:23px;color:#ffb655}
+.notam-hero p{margin:3px 0;font-size:12px;color:#cedde9}
+.notam-buttons{display:flex;gap:10px;margin:10px 0;align-items:center;flex-wrap:wrap}
+.notam-link{display:inline-block}
+.convective-days{display:flex;gap:5px;margin-bottom:8px}
+.convective-day{background:#1b2c3b;border:1px solid #39516a;border-radius:5px;padding:6px 12px;color:#d8f0ff}
+.convective-day.active{background:#d44b62;color:#fff;border-color:#ff7693}
+#convective-chart-img{max-height:220px;object-fit:contain}
+@media(max-width:680px){.free-layout-active .custom-board{min-height:700px}.free-layout-active .custom-board>.panel,.free-layout-active .custom-board>.stat{max-width:100%}}
+
+/* Show accessible chart/alert cards in normal layout too. */
+body:not(.free-layout-active) .bottom-grid{display:grid!important}
+/* Always display the corner resize grip in a saved custom arrangement. */
+.free-layout-active:not(.free-layout-editing) .free-grip{display:none}
+.free-layout-active:not(.free-layout-editing) .free-resize{display:block}
