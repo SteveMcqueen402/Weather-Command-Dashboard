@@ -19,10 +19,45 @@ const apis={
   taf:()=>['https://aviationweather.gov/api/data/taf?ids=KOMA&format=json',600000],
   radar:()=>['https://api.rainviewer.com/public/weather-maps.json',600000]
 };
+
+// Render-hosted, allowlisted image relay. Some official chart servers block browser hotlinking.
+// If the official source denies server access too, return 503 so the UI shows an explicit fallback.
+const chartSources={
+  surface:['https://www.wpc.ncep.noaa.gov/sfc/usfntsfc.gif',
+           'https://www.wpc.ncep.noaa.gov/sfc/namussfcwbg.gif'],
+  convective:['https://www.spc.noaa.gov/products/outlook/day1otlk.gif']
+};
+const chartCache=new Map();
+async function officialChart(key){
+  const old=chartCache.get(key);
+  if(old && Date.now()-old.at<10*60*1000)return old;
+  for(const url of chartSources[key]){
+    try{
+      const response=await fetch(url,{headers:{'User-Agent':'Mozilla/5.0 WeatherCommandDashboard/0.7.1','Accept':'image/avif,image/webp,image/png,image/gif,image/jpeg,image/*','Referer':new URL(url).origin+'/'},signal:AbortSignal.timeout(10000)});
+      if(!response.ok)continue;
+      const bytes=Buffer.from(await response.arrayBuffer());
+      if(bytes.length<200 || bytes.length>10_000_000)continue;
+      const mime=bytes.subarray(0,6).toString('ascii').startsWith('GIF8')?'image/gif':
+        bytes.subarray(0,4).toString('hex')==='89504e47'?'image/png':
+        bytes.subarray(0,3).toString('hex')==='ffd8ff'?'image/jpeg':null;
+      if(!mime)continue;
+      const item={bytes,mime,at:Date.now()};chartCache.set(key,item);return item;
+    }catch{ /* try next allowlisted official chart endpoint */ }
+  }
+  return null;
+}
+
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml'};
 const server=http.createServer(async(req,res)=>{
   try{
     const u=new URL(req.url,`http://localhost:${port}`);
+    if(u.pathname.startsWith('/api/chart/')){
+      const key=u.pathname.slice('/api/chart/'.length);
+      if(!Object.hasOwn(chartSources,key)){res.writeHead(404);res.end('Unknown chart');return;}
+      const chart=await officialChart(key);
+      if(!chart){res.writeHead(503,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'});res.end('Official chart image unavailable');return;}
+      res.writeHead(200,{'Content-Type':chart.mime,'Cache-Control':'public, max-age=300','X-Content-Type-Options':'nosniff'});res.end(chart.bytes);return;
+    }
     if(u.pathname==='/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({status:'ok'}));return;}
     if(u.pathname==='/api/airport-route'){
       const raw=(u.searchParams.get('ids')||'').toUpperCase().split(/[\s,;>-]+/).filter(Boolean);

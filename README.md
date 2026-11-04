@@ -1,4 +1,4 @@
-# Weather Command Dashboard — Flight Planner v0.7
+# Weather Command Dashboard — Flight Planner v0.7.2
 
 A dark, one-page graphical aviation weather dashboard for Omaha / KOMA, with expandable maps, interactive radar, NOAA meteorological charts, airport lookup, route-stop weather, and multi-day forecasts.
 
@@ -9,7 +9,7 @@ A dark, one-page graphical aviation weather dashboard for Omaha / KOMA, with exp
 - RainViewer historical precipitation radar with timestamp, animation, zoom, and an expandable map.
 - Official WPC surface analysis and SPC Day 1 convective outlook image previews; click either to enlarge, or open the original source.
 - Airport ICAO / U.S. identifier lookup, current METAR, and published TAF where available.
-- Route stops: enter From / To and optional comma-separated intermediate airport identifiers. Retrieve published METAR and TAF for those airports. Show a straight-line map with linked stop markers.
+- Route stops: enter From / To and optional comma-separated intermediate airport identifiers. Retrieve published METAR and TAF for those airports. Show an interactive route weather map inside the Route Weather panel with a departure-to-destination line, via-airport markers, flight-category colors, optional current radar overlay, popup METAR/TAF reports, and an enlarge button.
 - Approximate great-circle straight-line mileage by consecutive airport coordinates, estimated time based on user-entered **groundspeed**, and estimated cruise fuel consumption based on user-entered **gallons/hour**. These are planning arithmetic only, **not flight performance forecasts**.
 - Up to five daytime NWS forecast periods near the chosen route airport (contiguous U.S. locations). Weather outlooks are NOT forecasts of VFR/IFR flight categories.
 - Winds-aloft and HRRR/GFS cards link to source products until verified native model integrations are added.
@@ -51,3 +51,15 @@ Official charts may restrict cross-origin embedding. The app offers direct links
 - HRRR: https://www.nco.ncep.noaa.gov/pmb/products/hrrr/
 - GFS: https://www.nco.ncep.noaa.gov/pmb/products/gfs/
 - OpenStreetMap tiles / Leaflet.
+
+## 0.7.1 chart repair
+- Routes official WPC/SPC chart imagery through an allowlisted Render backend endpoint to avoid browser hotlink restrictions.
+- If NOAA blocks Render too, a dark graphical placeholder replaces the broken image, with a working official-source link.
+- Keeps existing dark theme, layout, radar and planning panels.
+- Chart availability cannot be guaranteed: official source remains authoritative.
+
+## v0.7.2 — Route Map panel
+- Replaced the route-airport list-only panel with an interactive route weather map.
+- Color-coded VFR/MVFR/IFR/LIFR/unknown airport pins, popups, connecting line, radar checkbox and enlarged map.
+- The latest v0.7.1 official-chart proxy fixes are retained.
+- Weather observations are airport-only and not weather forecasts between the airports. The depicted line is not a validated aviation route.
