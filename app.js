@@ -178,3 +178,26 @@ function attachChartFallbacks(){
   });
 }
 attachChartFallbacks();
+
+// v0.9: Match compact mockup hierarchy without hiding flight-planning capabilities.
+const routeEditor=document.getElementById('route-form');
+const routeToggle=document.getElementById('toggle-route-edit');
+if(routeToggle&&routeEditor){
+ routeToggle.addEventListener('click',()=>{
+   const opening=routeEditor.classList.contains('is-collapsed');
+   routeEditor.classList.toggle('is-collapsed',!opening);
+   routeToggle.setAttribute('aria-expanded',String(opening));
+   routeToggle.querySelector('span').textContent=opening?'▴':'▾';
+ });
+ routeEditor.addEventListener('submit',()=>{
+   const from=document.getElementById('route-from').value.trim().toUpperCase();
+   const to=document.getElementById('route-to').value.trim().toUpperCase();
+   document.getElementById('route-current-from').textContent=from||'KOMA';
+   document.getElementById('route-current-to').textContent=to||'Enter destination';
+ });
+ const quick=document.getElementById('quick-plan');
+ quick?.addEventListener('click',()=>{
+   document.getElementById('route-current-from').textContent=document.getElementById('quick-from').value.trim().toUpperCase()||'KOMA';
+   document.getElementById('route-current-to').textContent=document.getElementById('quick-to').value.trim().toUpperCase()||'Enter destination';
+ });
+}

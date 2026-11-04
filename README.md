@@ -76,3 +76,9 @@ Official charts may restrict cross-origin embedding. The app offers direct links
 
 ### Local validation
 Run `WCD_WIND_TEST=1 node server.mjs` to validate the wind table decoder fixture. Run `npm start` to serve the dashboard.
+
+## v0.9 mockup-match layout
+- Full-width top navigation, four compact metric tiles, wide center radar, aviation and winds aloft left stack, and route/weather/forecast/model right stack.
+- Route editor collapses to keep primary route summary visible like approved reference; all existing route fields remain available through Edit route.
+- Removed duplicate bottom chart thumbnails on desktop; surface and convective views remain reachable through center map tabs and shortcuts. On narrow screens chart tiles remain available.
+- No sample/mock weather values are ever populated as live data.
