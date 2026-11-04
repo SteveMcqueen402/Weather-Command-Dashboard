@@ -102,22 +102,38 @@ async function nmsAccessToken(auth,id,secret){
   nmsTokenCache.set(key,{token,until:Date.now()+seconds*1000});return token;
 }
 function extractNmsNotams(payload,airport){
-  // GeoJSON feature collection is documented, but the exact feature property schema is
-  // not included in the provided SoapUI file. Prefer unmodified source text; never invent.
-  const input=Array.isArray(payload)?payload:
+  // FAA NMS-API OpenAPI schema: {status:"Success",data:{geojson:[Feature,...]}}.
+  // Do not confuse an application error (HTTP 200/status Failure) with an empty result.
+  if(!payload||typeof payload!=='object')throw Error('FAA NMS returned an invalid JSON response.');
+  if(typeof payload.status==='string'&&payload.status.toLowerCase()!=='success'){
+    const errors=Array.isArray(payload.errors)?payload.errors.map(x=>x?.message).filter(Boolean).slice(0,3).join('; '):'';
+    throw Error('FAA NMS reported '+payload.status+(errors?': '+errors:''));
+  }
+  if(payload.data?.url){throw Error('FAA NMS returned a temporary download URL rather than direct airport NOTAM data.');}
+  const input=Array.isArray(payload?.data?.geojson)?payload.data.geojson:
+    Array.isArray(payload?.geojson)?payload.geojson:
+    Array.isArray(payload)?payload:
     payload?.type==='FeatureCollection'&&Array.isArray(payload.features)?payload.features:
     Array.isArray(payload?.features)?payload.features:
     Array.isArray(payload?.notams)?payload.notams:
     Array.isArray(payload?.results)?payload.results:null;
   if(input===null)return null;
+  const clean=(v)=>typeof v==='string'?v.trim():typeof v==='number'?String(v):'';
+  const first=(...v)=>v.map(clean).find(Boolean)||'';
   return input.slice(0,250).map((entry,index)=>{
-    const p=entry?.properties&&typeof entry.properties==='object'?entry.properties:entry;
-    const get=(...keys)=>keys.map(k=>p?.[k]).find(v=>typeof v==='string'&&v.trim());
-    const raw=get('traditionalMessage','traditionalText','notamText','notam','text','message','rawText','description','rawOb')||'';
-    const serial=get('notamNumber','number','notamId','id')||String(entry?.id||'NOTAM '+(index+1));
-    const location=get('location','locationId','airport','icao')||airport;
-    const category=get('feature','classification','category','type')||'NOTAM';
-    return {number:String(serial).slice(0,160),category:String(category).slice(0,100),categoryCode:'OTHER',text:raw||JSON.stringify(p).slice(0,4000),reading:raw||'Source properties shown below; consult original NOTAM for interpretation.',start:get('effectiveStartDate','effectiveStart','startDate','validFrom')||null,end:get('effectiveEndDate','effectiveEnd','endDate','validTo')||null,isTfr:false,location:String(location),status:'unverified',rawProperties:p};
+    const props=entry?.properties&&typeof entry.properties==='object'?entry.properties:entry;
+    const core=props?.coreNOTAMData||entry?.coreNOTAMData||{};
+    const notam=core?.notam||{};
+    const translation=Array.isArray(core.notamTranslation)?core.notamTranslation:[];
+    const local=translation.find(t=>t?.type==='LOCAL_FORMAT');
+    const icao=translation.find(t=>t?.type==='ICAO');
+    const original=first(local?.simpleText,icao?.formattedText,...translation.map(t=>t?.simpleText||t?.formattedText));
+    const message=first(notam.text,props?.traditionalMessage,props?.traditionalText,props?.notamText,props?.text,props?.message,props?.description);
+    const serial=first(notam.number,props?.notamNumber,props?.number,props?.notamId,entry?.id,notam.id)||('NOTAM '+(index+1));
+    const location=first(notam.icaoLocation,notam.location,props?.icaoLocation,props?.location,props?.locationId,props?.airport)||airport;
+    const category=first(notam.classification,props?.classification,props?.feature,props?.category,props?.type)||'NOTAM';
+    const safeOriginal=original||message||JSON.stringify(props).slice(0,4000);
+    return {number:serial.slice(0,160),category:category.slice(0,100),categoryCode:'OTHER',text:safeOriginal.slice(0,12000),reading:(message||original||'Review original FAA NOTAM details.').slice(0,4000),start:first(notam.effectiveStart,props?.effectiveStartDate,props?.effectiveStart,props?.startDate,props?.validFrom)||null,end:first(notam.effectiveEnd,props?.effectiveEndDate,props?.effectiveEnd,props?.endDate,props?.validTo)||null,isTfr:false,location,status:'unverified',rawProperties:props};
   });
 }
 
@@ -166,9 +182,9 @@ const server=http.createServer(async(req,res)=>{
         }
         const data=await resp.json();
         const records=extractNmsNotams(data,airport);
-        if(records===null)throw Error('NMS returned a response format not yet recognized. No NOTAMs have been assumed.');
+        if(records===null)throw Error('NMS response format remains unrecognized. Please provide the sanitized response shape (field names only) from Render logs; no NOTAMs have been assumed.');
         res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-        res.end(JSON.stringify({configured:true,airport,notams:records,total:records.length,hasMore:false,page:1,source:env==='test'?'FAA NMS PRE-PRODUCTION (TEST ONLY)':'FAA NMS',environment:env,checkedAt:new Date().toISOString()}));return;
+        res.end(JSON.stringify({configured:true,airport,notams:records,total:records.length,hasMore:false,page:1,limited:data?.data?.geojson?.length>250,source:env==='test'?'FAA NMS PRE-PRODUCTION (TEST ONLY)':'FAA NMS',environment:env,checkedAt:new Date().toISOString()}));return;
       }catch(e){
         const message=e.name==='TimeoutError'?'NMS request timed out.':e.message;
         res.writeHead(502,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({configured:true,error:message}));return;

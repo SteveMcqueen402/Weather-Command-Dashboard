@@ -150,3 +150,10 @@ OAuth client credentials are exchanged **server-side**. No secrets are sent to t
 For production use, request the provider-confirmed production token and API base URLs. Set `NMS_API_ENV=production` and add `NMS_AUTH_URL` and `NMS_API_BASE_URL`. Do not simply point test credentials at production. Remove obsolete `NOTAC_API_KEY` from Render once FAA NMS is working.
 
 **Security:** Credentials belong in Render Environment only. Do not commit keys, secrets, API response files containing tokens, or SoapUI profiles with active credentials. Rotate any exposed tokens.
+
+
+## v1.9 — FAA NMS GeoJSON response decoding
+
+Fixes the `NMS returned a response format not yet recognized` message by parsing the documented FAA NMS response envelope: `status: Success`, `data.geojson[]`, `Feature.properties.coreNOTAMData.notam`, and `notamTranslation[]`. Reports an NMS application-level failure rather than misrepresenting it as zero NOTAMs; shows a clear error if NMS returns a signed file URL. Both client credentials remain server-side in Render. Staging records remain labeled **TEST DATA — NOT FOR FLIGHT USE**.
+
+No new Render environment variables are needed. Do not place private NMS credentials in the source repository. Test with the existing staging credentials in Render and verify several airport identifiers.
