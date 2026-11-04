@@ -25,14 +25,20 @@ const server=http.createServer(async(req,res)=>{
     const u=new URL(req.url,`http://localhost:${port}`);
     if(u.pathname==='/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({status:'ok'}));return;}
     if(u.pathname.startsWith('/api/')){
-      const key=u.pathname.slice(5);if(!apis[key]){res.writeHead(404);res.end('Not found');return;}
-      const [url,ttl]=apis[key]();const data=await upstream(url,ttl);
+      const key=u.pathname.slice(5);if(key!=='forecast'&&!apis[key]){res.writeHead(404);res.end('Not found');return;}
+      let data;
+      if(key==='forecast'){
+        const point=await upstream('https://api.weather.gov/points/41.2565,-95.9345',3600000);
+        if(!point?.properties?.forecast)throw Error('NWS forecast endpoint unavailable');
+        data=await upstream(point.properties.forecast,300000);
+      }else{
+        const [url,ttl]=apis[key]();data=await upstream(url,ttl);
+      }
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=60'});res.end(JSON.stringify(data));return;
     }
-    if(u.pathname==='/api/forecast'){res.writeHead(404);res.end('Not found');return;}
-    const file=u.pathname==='/'?'index.html':decodeURIComponent(u.pathname).replace(/^\/+/, '');
-    const filename=path.resolve(root,file);
-    if(!filename.startsWith(root+path.sep)&&filename!==path.join(root,'index.html')){res.writeHead(403);res.end('Forbidden');return;}
+    const file=u.pathname==='/'?'index.html':u.pathname.slice(1);
+    if(!new Set(['index.html','app.js','style.css']).has(file)){res.writeHead(404);res.end('Not found');return;}
+    const filename=path.join(root,file);
     const content=await fs.readFile(filename);
     res.writeHead(200,{'Content-Type':types[path.extname(filename)]||'application/octet-stream'});res.end(content);
   }catch(err){res.writeHead(err.code==='ENOENT'?404:502,{'Content-Type':'application/json'});res.end(JSON.stringify({error:err.message}));}
