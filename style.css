@@ -516,3 +516,17 @@ body:not(.free-layout-active) .bottom-grid{display:grid!important}
 @media(max-width:650px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 .bottom-grid{grid-template-columns:1fr 1fr!important}
 @media(max-width:720px){.bottom-grid{grid-template-columns:1fr!important}}
+
+/* v2.0: FAA NMS notices directly inside every airport lookup popup */
+.airport-notam-section{margin-top:10px;background:#0d1723;border:1px solid #2c465d;border-radius:9px;padding:14px!important}
+.airport-notam-title{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:7px}
+.airport-notam-title strong{color:#56d9ff!important;font-size:15px}
+.airport-notam-status{font-size:12px;line-height:1.5;color:#b7cadb;margin:4px 0 14px}
+.airport-notam-status.test{color:#ffb95c;font-weight:700}
+.airport-popup-notam-list{display:grid;gap:10px;max-height:400px;overflow-y:auto}
+.airport-popup-notam{border:1px solid #355268;border-left:3px solid #ffb84c;border-radius:7px;padding:11px;background:#131f2b}
+.airport-popup-notam p{font-size:12px;line-height:1.5;color:#ebf5fc;overflow-wrap:anywhere}
+.airport-popup-notam small{display:block;color:#a6b9c8;font-size:11px}
+.airport-popup-notam details{margin-top:9px;font-size:12px;color:#70ccff}
+.airport-popup-notam summary{cursor:pointer}
+.airport-popup-notam pre{font:11px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;color:#e7f3ff;background:#070e17;padding:9px;border-radius:5px}

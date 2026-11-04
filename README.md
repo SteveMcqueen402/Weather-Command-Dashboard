@@ -157,3 +157,11 @@ For production use, request the provider-confirmed production token and API base
 Fixes the `NMS returned a response format not yet recognized` message by parsing the documented FAA NMS response envelope: `status: Success`, `data.geojson[]`, `Feature.properties.coreNOTAMData.notam`, and `notamTranslation[]`. Reports an NMS application-level failure rather than misrepresenting it as zero NOTAMs; shows a clear error if NMS returns a signed file URL. Both client credentials remain server-side in Render. Staging records remain labeled **TEST DATA — NOT FOR FLIGHT USE**.
 
 No new Render environment variables are needed. Do not place private NMS credentials in the source repository. Test with the existing staging credentials in Render and verify several airport identifiers.
+
+
+## v2.0 — NOTAMs in Airport Lookup
+- The airport lookup weather popup now fetches and shows FAA NMS notices for the **looked-up airport**, independent of the selected home airport.
+- Includes count, category, effective dates, complete notice text, refresh button and clear test-environment warning.
+- Preserves the main NOTAM panel and existing METAR, TAF, forecast and route functions.
+- Uses the current `/api/notams?airport=...` backend and existing Render NMS credentials; no new environment variables are needed.
+- **Staging/test data is not operational NOTAM data and must not be used for flight.**

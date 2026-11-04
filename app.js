@@ -130,7 +130,59 @@ if($('#route-radar'))$('#route-radar').onchange=e=>{current.routeRadarOn=e.targe
 function drawRouteWeather(){const host=$('#route-weather');if(!host)return;host.replaceChildren();if(!current.route.length){host.textContent='No route has been entered.';return}for(const p of current.route){const line=document.createElement('div');line.className='airport-row';const btn=document.createElement('button');btn.textContent=p.id;btn.title='Show airport weather';btn.onclick=()=>openAirport(p);const cat=document.createElement('span');cat.textContent=p.metar?.fltCat||'NO METAR';cat.className='category '+(p.metar?.fltCat||'');line.append(btn,cat);host.append(line)}}
 async function loadRoute(e){e?.preventDefault();let ids;try{ids=[normalize($('#route-from').value),...$('#route-via').value.split(',').map(x=>x.trim()).filter(Boolean).map(normalize),normalize($('#route-to').value)];if(ids.length>12)throw Error('Use at most 12 airports');}catch(err){text('#route-status',err.message);return}const button=$('#route-form button[type=submit]');button.disabled=true;text('#route-status','Loading airport observations and route positions…');try{current.route=await lookupAirports(ids);drawRouteWeather();drawSmallRouteMap();const can=calculateRoute();const found=current.route.filter(x=>x.metar).length;text('#route-status',`${found}/${ids.length} METARs found · ${can?'Straight-line distance, time and fuel estimates shown.':'Some airport coordinates unavailable; estimate not calculated.'} Not an operational flight plan.`);updateForecastLocations();if($('.tab.active')?.dataset.map==='route')mapMode('route')}catch(err){text('#route-status','Route lookup failed: '+err.message)}finally{button.disabled=false}}
 $('#route-form').addEventListener('submit',loadRoute);
-function openAirport(p){const block=document.createElement('div');block.innerHTML=`<div class="modal-row"><strong>${htmlEscape(p.id)}</strong> · ${htmlEscape(p.metar?.fltCat||'No reported flight category')} · ${htmlEscape(dateTime(p.metar?.obsTime))}</div><div class="modal-row"><strong>METAR</strong><pre>${htmlEscape(p.metar?.rawOb||'No current observation available.')}</pre></div><div class="modal-row"><strong>TAF</strong><pre>${htmlEscape(p.taf?.rawTAF||'No published TAF for this airport.')}</pre></div>`;const btn=document.createElement('button');btn.className='primary';btn.textContent='Show multi-day forecast for this airport';btn.onclick=()=>{$('#forecast-select').value=p.id;closeModal();scrollToPanel('forecast-section');loadLocationForecast()};if([...$('#forecast-select').options].some(x=>x.value===p.id))block.append(btn);showModal(p.id+' · Airport Weather',block,'https://aviationweather.gov/')}
+// Airport lookup includes independent NOTAM retrieval for the LOOKED-UP airport,
+// not the home airport. Data remains labeled as staging when NMS_API_ENV=test.
+async function loadAirportPopupNotams(airport,holder){
+ const heading=document.createElement('div');heading.className='airport-notam-title';
+ const label=document.createElement('strong');label.textContent=airport+' · FAA NOTAMs';
+ const refresh=document.createElement('button');refresh.type='button';refresh.className='outline';refresh.textContent='Refresh';
+ heading.append(label,refresh);holder.append(heading);
+ const state=document.createElement('p');state.className='airport-notam-status';state.setAttribute('role','status');holder.append(state);
+ const list=document.createElement('div');list.className='airport-popup-notam-list';holder.append(list);
+ let requestId=0;
+ async function load(){
+   const call=++requestId;refresh.disabled=true;state.textContent='Checking FAA NMS NOTAMs for '+airport+'…';list.replaceChildren();
+   const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),30000);
+   try{
+     const response=await fetch('/api/notams?airport='+encodeURIComponent(airport),{signal:controller.signal,cache:'no-store'});
+     const data=await response.json().catch(()=>({error:'Invalid NOTAM response'}));
+     if(!response.ok)throw Error(data.error||'FAA NMS request failed (HTTP '+response.status+').');
+     if(call!==requestId||!holder.isConnected)return;
+     if(!Array.isArray(data.notams))throw Error('FAA NMS response does not contain a recognized notice list.');
+     const testing=data.environment==='test';
+     const total=Number.isFinite(data.total)?data.total:data.notams.length;
+     state.textContent=(testing?'TEST ENVIRONMENT — NOT FOR FLIGHT USE · ':'')+total+' NOTAM'+(total===1?'':'s')+' returned for '+airport+' · checked '+dateTime(data.checkedAt)+(data.limited?' · provider results may be limited':'');
+     if(testing)state.classList.add('test');else state.classList.remove('test');
+     if(data.notams.length===0){const empty=document.createElement('p');empty.className='fine';empty.textContent='The FAA NMS '+(testing?'test':'')+' service returned no notices for '+airport+'. This does not replace an official briefing.';list.append(empty);return;}
+     for(const n of data.notams){
+       const item=document.createElement('article');item.className='airport-popup-notam';
+       const top=document.createElement('div');top.className='notam-item-top';
+       const number=document.createElement('strong');number.textContent=n.number||'NOTAM';
+       const tag=document.createElement('span');tag.className='notam-tag '+(n.isTfr?'critical':String(n.categoryCode||'other').toLowerCase());tag.textContent=n.category||'Other';top.append(number,tag);
+       const reading=document.createElement('p');reading.textContent=n.reading||n.text||'Description unavailable';
+       const dates=document.createElement('small');dates.textContent='Effective '+(n.start?dateTime(n.start):'unknown')+' — '+(n.end?dateTime(n.end):'permanent / unknown');
+       const detail=document.createElement('details');const summary=document.createElement('summary');summary.textContent='Full NOTAM text';
+       const raw=document.createElement('pre');raw.textContent=n.text||'Raw text unavailable';detail.append(summary,raw);
+       item.append(top,reading,dates,detail);list.append(item);
+     }
+   }catch(err){
+     if(call!==requestId||!holder.isConnected)return;
+     state.classList.remove('test');state.textContent=(err.name==='AbortError'?'FAA NMS request timed out.':err.message)+' No notices are being represented as current.';
+   }finally{clearTimeout(timer);if(call===requestId&&holder.isConnected)refresh.disabled=false;}
+ }
+ refresh.addEventListener('click',load);
+ await load();
+}
+function openAirport(p){
+ const block=document.createElement('div');
+ block.innerHTML=`<div class="modal-row"><strong>${htmlEscape(p.id)}</strong> · ${htmlEscape(p.metar?.fltCat||'No reported flight category')} · ${htmlEscape(dateTime(p.metar?.obsTime))}</div><div class="modal-row"><strong>METAR</strong><pre>${htmlEscape(p.metar?.rawOb||'No current observation available.')}</pre></div><div class="modal-row"><strong>TAF</strong><pre>${htmlEscape(p.taf?.rawTAF||'No published TAF for this airport.')}</pre></div>`;
+ const section=document.createElement('section');section.className='modal-row airport-notam-section';block.append(section);
+ const btn=document.createElement('button');btn.className='primary';btn.textContent='Show multi-day forecast for this airport';
+ btn.onclick=()=>{$('#forecast-select').value=p.id;closeModal();scrollToPanel('forecast-section');loadLocationForecast()};
+ if([...$('#forecast-select').options].some(x=>x.value===p.id))block.append(btn);
+ showModal(p.id+' · Airport Weather & NOTAMs',block,'https://aviationweather.gov/');
+ loadAirportPopupNotams(p.id,section);
+}
 $('#airport-search').onsubmit=async e=>{e.preventDefault();let id;try{id=normalize($('#airport-id').value)}catch(err){status(err.message);return}status(`Looking up ${id}…`);try{const [p]=await lookupAirports([id]);current.route.some(x=>x.id===id)||current.route.push(p);updateForecastLocations();status('');openAirport(p)}catch(err){status('Airport lookup failed: '+err.message)}};
 function iconFor(x){const s=String(x||'').toLowerCase();if(/thunder/.test(s))return '⛈';if(/snow|sleet|ice/.test(s))return '❄';if(/rain|shower|drizzle/.test(s))return '🌧';if(/cloud|overcast/.test(s))return '☁';if(/fog|haze/.test(s))return '≋';return '☀'}
 function forecastTiles(periods){const host=$('#forecast-days');host.replaceChildren();const daytime=periods.filter(p=>p.isDaytime);const samples=daytime.length?daytime.slice(0,5):periods.slice(0,5);for(const p of samples){const tile=document.createElement('div');tile.className='day';const day=document.createElement('strong');day.textContent=p.name||'Period';const symbol=document.createElement('div');symbol.className='symbol';symbol.textContent=iconFor(p.shortForecast);const t=document.createElement('div');t.className='temperature';t.textContent=p.temperature!=null?p.temperature+'°':'—';const info=document.createElement('small');info.textContent=p.shortForecast||'Forecast unavailable';const wind=document.createElement('small');wind.textContent=[p.windDirection,p.windSpeed].filter(Boolean).join(' ')||'Wind unavailable';tile.append(day,symbol,t,info,wind);host.append(tile)}if(!samples.length)host.textContent='No forecast periods available.'}
