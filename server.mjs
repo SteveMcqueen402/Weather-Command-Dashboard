@@ -7,7 +7,7 @@ const port=Number(process.env.PORT||3000);
 const cache=new Map();
 async function upstream(url,ttl=60000){
   const existing=cache.get(url); if(existing && Date.now()-existing.at<ttl)return existing.value;
-  const res=await fetch(url,{headers:{'User-Agent':'WeatherCommandDashboard/0.1 (personal weather monitor)','Accept':'application/geo+json, application/json, text/plain'}});
+  const res=await fetch(url,{headers:{'User-Agent':'WeatherCommandDashboard/0.1 (personal weather monitor)','Accept':'application/geo+json, application/json, text/plain'},signal:AbortSignal.timeout(14000)});
   if(res.status===204)return null;
   if(!res.ok)throw Error(`Upstream service returned ${res.status}`);
   const value=await res.json();cache.set(url,{value,at:Date.now()});return value;
@@ -24,6 +24,35 @@ const server=http.createServer(async(req,res)=>{
   try{
     const u=new URL(req.url,`http://localhost:${port}`);
     if(u.pathname==='/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({status:'ok'}));return;}
+    if(u.pathname==='/api/airport-route'){
+      const raw=(u.searchParams.get('ids')||'').toUpperCase().split(/[\s,;>-]+/).filter(Boolean);
+      if(!raw.length||raw.length>12||raw.some(id=>!/^[A-Z0-9]{3,4}$/.test(id))){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Enter 1–12 valid 3- or 4-character airport identifiers.'}));return;}
+      const ids=raw.map(id=>id.length===3?'K'+id:id);
+      const unique=[...new Set(ids)];const joined=unique.join(',');
+      const base='https://aviationweather.gov/api/data/';
+      const results=await Promise.allSettled([
+        upstream(base+'metar?ids='+joined+'&format=json',180000),
+        upstream(base+'taf?ids='+joined+'&format=json',300000),
+        upstream(base+'airport?ids='+joined+'&format=json',86400000)
+      ]);
+      const array=i=>results[i].status==='fulfilled'&&Array.isArray(results[i].value)?results[i].value:[];
+      const metars=array(0),tafs=array(1),airports=array(2);
+      if(results.every(r=>r.status==='rejected')){res.writeHead(502,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Aviation Weather Center is temporarily unavailable.'}));return;}
+      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=120'});
+      res.end(JSON.stringify({ids,metars,tafs,airports,partial:results.some(r=>r.status==='rejected'),checkedAt:new Date().toISOString()}));return;
+    }
+    if(u.pathname==='/api/location-forecast'){
+      const lat=Number(u.searchParams.get('lat'));const lon=Number(u.searchParams.get('lon'));
+      if(!Number.isFinite(lat)||!Number.isFinite(lon)||lat<24||lat>50||lon< -125||lon> -66){
+        res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Multi-day NWS forecast requires coordinates in the contiguous United States.'}));return;
+      }
+      const points=await upstream(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`,3600000);
+      if(!points?.properties?.forecast)throw Error('NWS forecast unavailable for this location');
+      const forecast=await upstream(points.properties.forecast,300000);
+      const periods=(forecast?.properties?.periods||[]).slice(0,14).map(p=>({name:p.name,startTime:p.startTime,isDaytime:p.isDaytime,temperature:p.temperature,temperatureUnit:p.temperatureUnit,shortForecast:p.shortForecast,windSpeed:p.windSpeed,windDirection:p.windDirection,probabilityOfPrecipitation:p.probabilityOfPrecipitation?.value??null}));
+      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=180'});
+      res.end(JSON.stringify({location:points?.properties?.relativeLocation?.properties||null,periods,updated:new Date().toISOString(),source:'NWS'}));return;
+    }
     if(u.pathname.startsWith('/api/')){
       const key=u.pathname.slice(5);if(key!=='forecast'&&!apis[key]){res.writeHead(404);res.end('Not found');return;}
       let data;
