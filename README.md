@@ -165,3 +165,20 @@ No new Render environment variables are needed. Do not place private NMS credent
 - Preserves the main NOTAM panel and existing METAR, TAF, forecast and route functions.
 - Uses the current `/api/notams?airport=...` backend and existing Render NMS credentials; no new environment variables are needed.
 - **Staging/test data is not operational NOTAM data and must not be used for flight.**
+
+
+## v2.1 — Winds aloft recovery
+
+- Retrieves official AWC text FB winds first, with official weather.gov FD1/FD2/FD3 product fallback (6/12/24 hours respectively).
+- Validates issue time and the forecast table; never fabricates wind data.
+- Reports actual source of the displayed data and upstream errors.
+- Maintains 15-minute server cache to avoid hammering NOAA.
+- The FAA NMS setup remains unchanged.
+
+
+## v2.2 — UTC / Zulu time indicator
+
+- Adds a compact, persistent **UTC / ZULU** digital clock to the dashboard header.
+- Displays 24-hour HH:MM:SSZ and updates every second using the browser clock.
+- Uses standard UTC regardless of the user's device time zone.
+- No API key or server changes required; earlier functionality is unchanged.

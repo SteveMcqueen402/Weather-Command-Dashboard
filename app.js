@@ -227,7 +227,17 @@ $('#quick-plan').onclick=()=>{
 };
 
 async function refresh(){text('#checked','Refreshing sources…');status('');await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadRadar(),loadLocationForecast(),loadWinds(),loadNotams()]);text('#checked','Updated '+new Date().toLocaleTimeString('en-US',{timeZone:'America/Chicago',hour:'numeric',minute:'2-digit',timeZoneName:'short'}))}
-$('#refresh').onclick=refresh;setInterval(()=>{text('#utc',new Date().toLocaleTimeString('en-GB',{timeZone:'UTC',hour:'2-digit',minute:'2-digit'})+' UTC')},30000);text('#utc',new Date().toLocaleTimeString('en-GB',{timeZone:'UTC',hour:'2-digit',minute:'2-digit'})+' UTC');
+$('#refresh').onclick=refresh;
+// Independent live UTC/Zulu clock, 24-hour format with seconds. No network request required.
+function updateZuluClock(){
+  const now=new Date();
+  const zulu=[now.getUTCHours(),now.getUTCMinutes(),now.getUTCSeconds()]
+    .map(value=>String(value).padStart(2,'0')).join(':')+'Z';
+  const time=$('#utc');
+  if(time){time.textContent=zulu;time.dateTime=now.toISOString();}
+}
+updateZuluClock();
+setInterval(updateZuluClock,1000);
 
 // User-selectable home airport and map style. Keep state local to the browser.
 $('#map-style').value=['sectional','street','satellite'].includes(current.mapStyle)?current.mapStyle:'sectional';

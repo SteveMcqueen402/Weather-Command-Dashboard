@@ -15,15 +15,47 @@ async function upstream(url,ttl=60000){
 // AWC publishes legacy FB winds/temperatures as fixed-width/text station rows.
 // This endpoint is distinct from the JSON METAR/TAF endpoints.
 const windTableCache=new Map();
+function validWindTable(text){
+  // Check actual forecast rows, not just a single rigid header spelling.
+  return /\bFT\s+3000\s+6000\s+9000\b/i.test(text) &&
+    /\bDATA BASED ON\s+\d{6}Z/i.test(text) &&
+    /^\s*[A-Z]{3}\s+\d{4}/m.test(text);
+}
+function decodeNwsProductHtml(html){
+  // NWS weather.gov product pages contain a forecast in a preformatted text block.
+  const blocks=[...html.matchAll(/<pre\b[^>]*>([\s\S]*?)<\/pre>/gi)].map(x=>x[1]);
+  const candidates=blocks.length?blocks:[html];
+  for(const value of candidates){
+    const plain=value.replace(/<[^>]*>/g,'').replace(/&nbsp;|&#160;/gi,' ')
+      .replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/&amp;/gi,'&')
+      .replace(/\r/g,'');
+    if(validWindTable(plain))return plain;
+  }
+  return '';
+}
 async function readWindTable(fcst){
   const existing=windTableCache.get(fcst);
-  if(existing&&Date.now()-existing.at<900000)return existing.text;
-  const url=`https://aviationweather.gov/api/data/windtemp?region=us&level=low&fcst=${fcst}`;
-  const response=await fetch(url,{headers:{'User-Agent':'WeatherCommandDashboard/0.8 (aviation planning)','Accept':'text/plain'},signal:AbortSignal.timeout(14000)});
-  if(!response.ok)throw Error(`AWC wind/temp source returned HTTP ${response.status}`);
-  const text=await response.text();
-  if(!/\bFT\s+3000/.test(text)||text.length<100)throw Error('Wind/temperature forecast table unavailable');
-  windTableCache.set(fcst,{text,at:Date.now()});return text;
+  if(existing&&Date.now()-existing.at<900000)return existing;
+  // AWC is the preferred official publisher; weather.gov offers the official
+  // FD1/FD2/FD3 NWS text products as an independent fallback.
+  const product={'06':'FD1','12':'FD2','24':'FD3'}[fcst];
+  const sources=[
+    {name:'NOAA Aviation Weather Center',url:`https://aviationweather.gov/api/data/windtemp?region=us&level=low&fcst=${fcst}`,html:false},
+    {name:'NWS FD forecast text',url:`https://forecast.weather.gov/product.php?site=NWS&issuedby=US1&product=${product}&format=TXT`,html:true}
+  ];
+  const failures=[];
+  for(const source of sources){
+    try{
+      const response=await fetch(source.url,{headers:{'User-Agent':'WeatherCommandDashboard/2.1 (aviation planning)','Accept':source.html?'text/html,text/plain':'text/plain'},signal:AbortSignal.timeout(14000)});
+      if(!response.ok)throw Error(`HTTP ${response.status}`);
+      const body=await response.text();
+      const text=source.html?decodeNwsProductHtml(body):body;
+      if(!validWindTable(text))throw Error('response contained no recognized official FB table');
+      const item={text,source:source.name,at:Date.now()};
+      windTableCache.set(fcst,item);return item;
+    }catch(err){failures.push(`${source.name}: ${err.message}`);}
+  }
+  throw Error('Official winds/temperature forecasts currently unavailable from AWC and NWS. '+failures.join('; '));
 }
 function decodeFB(code,altitude){
   if(!/^\d{4}(?:[+-]\d{2}|\d{2})?$/.test(code))return null;
@@ -43,8 +75,30 @@ function parseWinds(raw,station){
   const levels=[...head.matchAll(/\b(3000|6000|9000|12000|18000|24000|30000|34000|39000)\b/g)].map(m=>Number(m[1]));
   const line=lines.find(x=>new RegExp('^\\s*'+station+'\\s+\\d{4}').test(x));
   if(!line)return {station,levels,rows:[],available:false};
-  const cols=line.trim().split(/\s+/).slice(1);
-  const rows=cols.map((v,i)=>decodeFB(v,levels[i])).filter(Boolean);
+  // NWS tables may omit 3,000 ft or 6,000 ft forecasts, especially at high terrain.
+  // Use the fixed-width header column positions to retain correct altitude mapping.
+  const first=lines.find(x=>/\bFT\s+3000\s+6000\b/.test(x));
+  const headerSlots=[...first.matchAll(/\b(3000|6000|9000|12000|18000|24000|30000|34000|39000)\b/g)]
+    .map(m=>({altitude:Number(m[1]),position:m.index}));
+  const parts=[...line.matchAll(/\S+/g)].slice(1);
+  let rows=[];
+  for(const part of parts){
+    // Header values start farther right than corresponding row values by a few columns.
+    const position=part.index;
+    let match=headerSlots.reduce((best,slot)=>{
+      const distance=Math.abs(slot.position-position);
+      return !best||distance<best.distance?{slot,distance}:best;
+    },null);
+    if(match && match.distance<=6){
+      const decoded=decodeFB(part[0],match.slot.altitude);
+      if(decoded && !rows.some(x=>x.altitude===decoded.altitude))rows.push(decoded);
+    }
+  }
+  rows.sort((a,b)=>a.altitude-b.altitude);
+  if(!rows.length){ // Fall back only when the fixed-column variant cannot be identified.
+    const cols=line.trim().split(/\s+/).slice(1);
+    rows=cols.map((v,i)=>decodeFB(v,levels[i])).filter(Boolean);
+  }
   return {station,levels,rows,available:rows.length>0};
 }
 
@@ -197,12 +251,13 @@ const server=http.createServer(async(req,res)=>{
       if(!['06','12','24'].includes(fcst)||!/^[A-Z]{3}$/.test(station)){
         res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Invalid forecast hour or station'}));return;
       }
-      const raw=await readWindTable(fcst);
+      const report=await readWindTable(fcst);
+      const raw=report.text;
       const parsed=parseWinds(raw,station);
       const lines=raw.split(/\r?\n/).slice(0,12);
       const header=lines.filter(x=>/DATA BASED|VALID|FOR USE|TEMPS NEG/i.test(x)).map(x=>x.trim());
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=300'});
-      res.end(JSON.stringify({...parsed,fcst,header,source:'NOAA Aviation Weather Center FB Winds/Temps',retrievedAt:new Date().toISOString()}));return;
+      res.end(JSON.stringify({...parsed,fcst,header,source:report.source+' · official FB winds/temperatures',retrievedAt:new Date().toISOString()}));return;
     }
     if(u.pathname==='/api/airport-route'){
       const raw=(u.searchParams.get('ids')||'').toUpperCase().split(/[\s,;>-]+/).filter(Boolean);
