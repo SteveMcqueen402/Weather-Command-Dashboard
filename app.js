@@ -2,7 +2,10 @@ const $=s=>document.querySelector(s);
 const set=(s,v)=>{const el=$(s);if(el)el.textContent=v};
 const maps={};const radarLayers=new Map();let radarData;
 function clock(){set('#utc',new Date().toLocaleString('en-US',{timeZone:'UTC',hour:'2-digit',minute:'2-digit',hour12:false})+' UTC')};clock();setInterval(clock,30000);
-function mapInit(id,zoom){if(maps[id])return maps[id];if(!window.L){set('#notices','Map library unavailable. Radar source links remain accessible.');return null;}const m=L.map(id,{zoomControl:true}).setView([41.30,-95.90],zoom);L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',maxZoom:18}).addTo(m);L.marker([41.301,-95.894]).addTo(m).bindPopup('KOMA • Eppley Airfield');maps[id]=m;return m;}
+function mapInit(id,zoom){if(maps[id])return maps[id];if(!window.L){set('#notices','Map library unavailable. Radar source links remain accessible.');return null;}const m=L.map(id,{zoomControl:true}).setView([41.30,-95.90],zoom);L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  attribution:'© OpenStreetMap contributors',
+  maxZoom:19
+}).addTo(m);L.marker([41.301,-95.894]).addTo(m).bindPopup('KOMA • Eppley Airfield');maps[id]=m;return m;}
 function tileOn(map){if(!map||!radarData?.radar?.past?.length)return;const frame=radarData.radar.past.at(-1);const url=`${radarData.host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;if(radarLayers.has(map))map.removeLayer(radarLayers.get(map));const layer=L.tileLayer(url,{opacity:.77,maxNativeZoom:7,maxZoom:18,attribution:'Radar © RainViewer'}).addTo(map);radarLayers.set(map,layer);const when=new Date(frame.time*1000).toLocaleString();set('#radarstamp',`Latest radar frame: ${when}`);set('#radarstamp2',`Latest radar frame: ${when}`);}
 async function api(key){const r=await fetch('/api/'+key);if(!r.ok)throw Error(`${key}: ${r.status}`);return await r.json()}
 async function weather(){try{const data=await api('forecast');const period=data?.properties?.periods?.[0];if(period){set('#temp',period.temperature+'°'+period.temperatureUnit);set('#conditions',period.shortForecast||'NWS forecast');}}catch(err){set('#conditions','NWS forecast unavailable');}}
