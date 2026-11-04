@@ -97,6 +97,33 @@ const server=http.createServer(async(req,res)=>{
       if(!chart){res.writeHead(503,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'});res.end('Official chart image unavailable');return;}
       res.writeHead(200,{'Content-Type':chart.mime,'Cache-Control':'public, max-age=300','X-Content-Type-Options':'nosniff'});res.end(chart.bytes);return;
     }
+    if(u.pathname==='/api/notams'){
+      const airport=(u.searchParams.get('airport')||'').trim().toUpperCase();
+      const page=Number(u.searchParams.get('page')||'1');
+      if(!/^[A-Z0-9]{3,4}$/.test(airport)||!Number.isInteger(page)||page<1||page>10){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Invalid airport or page.'}));return;}
+      const token=process.env.NOTAC_API_KEY;
+      if(!token){res.writeHead(503,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({configured:false,error:'Live NOTAM data access is not yet configured. Set NOTAC_API_KEY in Render environment variables.'}));return;}
+      const query=new URL('https://notac.aero/api/v1/notam/');query.searchParams.set('location',airport);query.searchParams.set('status','active');query.searchParams.set('sort','priority');query.searchParams.set('page',String(page));
+      const cacheKey=query.toString();const cached=cache.get(cacheKey);
+      let payload;
+      if(cached&&Date.now()-cached.at<120000)payload=cached.value;
+      else{
+        const upstreamResponse=await fetch(query,{headers:{Authorization:`Bearer ${token}`,'Accept':'application/json','User-Agent':'WeatherCommandDashboard/1.6 (personal aviation weather)'},signal:AbortSignal.timeout(12000)});
+        if(!upstreamResponse.ok){
+          const reason=upstreamResponse.status===401||upstreamResponse.status===403?'NOTAM provider rejected the configured API credential.':upstreamResponse.status===429?'NOTAM provider rate limit reached.':`NOTAM provider returned ${upstreamResponse.status}.`;
+          res.writeHead(502,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({configured:true,error:reason}));return;
+        }
+        payload=await upstreamResponse.json();cache.set(cacheKey,{at:Date.now(),value:payload});
+      }
+      if(!Array.isArray(payload?.results))throw Error('Invalid NOTAM provider response');
+      const records=payload.results.slice(0,20).map(n=>({
+        number:String(n.number||''),category:String(n.category?.label||n.category?.code||'Other'),categoryCode:String(n.category?.code||'OTHER'),
+        text:String(n.text||''),reading:String(n.readings?.[0]?.short||''),start:n.effective_start||null,end:n.effective_end||null,
+        isTfr:!!n.is_tfr,location:String(n.location_code||airport),status:String(n.status||'active')
+      }));
+      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
+      res.end(JSON.stringify({configured:true,airport,notams:records,total:Number(payload.count)||0,hasMore:!!payload.next,page,source:'NOTAC (FAA-derived)',checkedAt:new Date().toISOString()}));return;
+    }
     if(u.pathname==='/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({status:'ok'}));return;}
     if(u.pathname==='/api/winds-aloft'){
       const fcst=u.searchParams.get('fcst')||'06';

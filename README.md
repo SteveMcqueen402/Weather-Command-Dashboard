@@ -110,9 +110,10 @@ The dark navy base remains, with much darker black header and background, strong
 - Controls do not sync between devices. Official weather and charts remain essential for flight planning; no operational routing or complete briefing capability.
 
 
-## v1.5 — Free-layout, FAA NOTAM entry, NOAA SPC convective repairs
-
-- Click Arrange Panels. Every panel **including the four top summary tiles** moves on a free-form canvas. Grab `⠿ MOVE`, drag to any pixel position, and resize by pulling the lower-right striped corner (mouse, pen, or touch). `−` collapses and `+` expands. Click Done Arranging to hide handles. Saves on this browser, not across devices. Reset Layout restores original display.
-- Home-airport NOTAM tile replaces the old NWS alert count tile. Opens FAA official NOTAM Search and offers Copy Airport ID. **No fake NOTAM counts**: the FAA NOTAM feed is not publicly accessible without approved credentials. The existing detailed NWS weather alerts panel is still available.
-- Convective charts now feature Day 1/2/3 selectors; their server-side image relay first requests official NOAA SPC ArcGIS categorical outlook renders and falls back to official SPC images if unavailable. The chart is not a depiction of all convective hazards; check official issued and valid times.
-- No aviation route validation or NOTAM completeness claim. Preflight users must use official briefing sources.
+## v1.6 — In-dashboard NOTAM listing
+- Current active airport NOTAMs render as individual notices in the dashboard with raw text, plain-English interpretation (when supplied), validity dates, categories, filtering, pagination, and enlarged view.
+- Requires a NOTAC provider API token, provisioned as `NOTAC_API_KEY` in Render -> Environment. Do **not** commit tokens to GitHub, put them in browser code, or send them in ChatGPT. Provider credentials are not included.
+- Request a NOTAC API key from the provider: https://notac.aero/api/authentication/ . Another future option is approval for FAA NMS API access: https://www.faa.gov/about/initiatives/notam .
+- If missing credentials, unauthorized access, rate limiting, or an upstream outage occurs, the panel clearly displays that notices are unavailable—never a fictitious zero-notices or live list.
+- The service caches the provider's response for 2 minutes and fetches up to 20 records/page.
+- NOTAC is an FAA-derived **third-party** service; for complete, current preflight notices and related NOTAMs/TFRs always cross-check with an official briefing.

@@ -486,3 +486,24 @@ body:not(.free-layout-active) .bottom-grid{display:grid!important}
 /* Always display the corner resize grip in a saved custom arrangement. */
 .free-layout-active:not(.free-layout-editing) .free-grip{display:none}
 .free-layout-active:not(.free-layout-editing) .free-resize{display:block}
+
+/* v1.6 NOTAM feed */
+.notam-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:9px}
+.notam-toolbar label{display:flex;align-items:center;gap:5px;font-size:11px;color:#a6c6df}
+.notam-toolbar select{width:auto;min-width:125px;padding:6px;color:#fff;background:#142236;border:1px solid #3a5770;border-radius:5px}
+.notam-toolbar .outline{font-size:11px}
+.notam-feed-status{font-size:12px;color:#ffbc72;margin-bottom:10px}
+.notam-list{max-height:390px;overflow-y:auto;display:grid;gap:8px}
+.notam-item{border:1px solid #37536e;border-left:3px solid #ffb94c;border-radius:7px;background:#131e2a;padding:10px}
+.notam-item-top{display:flex;align-items:center;justify-content:space-between;gap:9px}
+.notam-item-top strong{font-size:13px;color:#fff}
+.notam-tag{border-radius:5px;padding:3px 7px;background:#154563;color:#67d9ff;font-size:10px;font-weight:750}
+.notam-tag.runway,.notam-tag.rwy_cond,.notam-tag.taxiway{background:#5c401a;color:#ffcc81}
+.notam-tag.critical,.notam-tag.airspace,.notam-tag.tfr{background:#5d2037;color:#ff8da6}
+.notam-reading{font-size:12px;color:#ecf3fb;line-height:1.5;white-space:pre-wrap;margin:7px 0}
+.notam-item small{display:block;color:#a0b7cb;font-size:10px}
+.notam-item details{margin-top:8px;color:#90ceff;font-size:11px}
+.notam-item summary{cursor:pointer}
+.notam-item pre{font:11px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;color:#e5eef7;background:#090f18;padding:9px;border-radius:4px}
+.notam-pagination{display:flex;align-items:center;gap:10px;padding:7px 0}
+.notam-modal-list{max-height:70vh;overflow:auto;display:grid;gap:10px}

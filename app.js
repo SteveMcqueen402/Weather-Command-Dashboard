@@ -173,7 +173,7 @@ $('#quick-plan').onclick=()=>{
  $('#route-form').requestSubmit();
 };
 
-async function refresh(){text('#checked','Refreshing sources…');status('');await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadRadar(),loadLocationForecast(),loadWinds()]);text('#checked','Updated '+new Date().toLocaleTimeString('en-US',{timeZone:'America/Chicago',hour:'numeric',minute:'2-digit',timeZoneName:'short'}))}
+async function refresh(){text('#checked','Refreshing sources…');status('');await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadRadar(),loadLocationForecast(),loadWinds(),loadNotams(),loadNotams()]);text('#checked','Updated '+new Date().toLocaleTimeString('en-US',{timeZone:'America/Chicago',hour:'numeric',minute:'2-digit',timeZoneName:'short'}))}
 $('#refresh').onclick=refresh;setInterval(()=>{text('#utc',new Date().toLocaleTimeString('en-GB',{timeZone:'UTC',hour:'2-digit',minute:'2-digit'})+' UTC')},30000);text('#utc',new Date().toLocaleTimeString('en-GB',{timeZone:'UTC',hour:'2-digit',minute:'2-digit'})+' UTC');
 
 // User-selectable home airport and map style. Keep state local to the browser.
@@ -187,7 +187,7 @@ function refreshHomeLabels(){
  const title=$('#airport-section .panelhead h2');if(title)title.textContent='✈ '+current.homeId+' AVIATION';
  $('#quick-from').value=current.homeId;$('#route-from').value=current.homeId;
  const forecast=$('#forecast-select');if(forecast){forecast.replaceChildren();const option=document.createElement('option');option.value=current.homeId;option.textContent=current.homeId+' · home';forecast.append(option)}
- text('#notam-home-id',current.homeId);text('#notam-panel-airport',current.homeId);text('#notam-airport-code',current.homeId);text('#notam-summary','Search FAA notices for '+current.homeId);
+ text('#notam-panel-airport',current.homeId);text('#notam-home-id','—');text('#notam-summary','Checking '+current.homeId+' NOTAMs');
  const label=document.querySelector('.stat:nth-child(2) .stathead span');if(label)label.textContent='WINDS AT '+current.homeId;
  const windStations=$('#wind-station');if(windStations){const short=current.homeId.slice(1);if([...windStations.options].some(x=>x.value===short))windStations.value=short}
 }
@@ -205,7 +205,7 @@ $('#home-airport-form').addEventListener('submit',async e=>{
   if(current.homeMarker)current.map.removeLayer(current.homeMarker);
   current.homeMarker=L.marker(homeCoords()).addTo(current.map).bindPopup(current.homeId+' · Home airport');
   if(!current.route.length)drawSmallRouteMap();
-  await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadLocationForecast(),loadWinds()]);status('Home airport saved: '+id);
+  await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadLocationForecast(),loadWinds(),loadNotams(),loadNotams()]);status('Home airport saved: '+id);
  }catch(err){text('#home-airport-status','Unable to select: '+err.message);status(err.message)}finally{btn.disabled=false}
 });
 
@@ -273,11 +273,65 @@ function setConvectiveDay(day){
 }
 document.querySelectorAll('[data-day]').forEach(btn=>btn.addEventListener('click',()=>setConvectiveDay(btn.dataset.day)));
 setConvectiveDay('1');
-// The selected airport controls the official FAA NOTAM search entry point.
-function openOfficialNotams(){window.open('https://notams.aim.faa.gov/notamSearch/','_blank','noopener,noreferrer')}
-$('#notam-expand')?.addEventListener('click',openOfficialNotams);
-$('#copy-notam-airport')?.addEventListener('click',async()=>{
- const id=current.homeId;try{await navigator.clipboard.writeText(id);text('#notam-summary',id+' copied — paste into FAA NOTAM Search location field')}catch{window.prompt('Copy airport identifier',id)}
+// Airport NOTAM feed. No sample or made-up NOTAMs are displayed.
+let notamPage=1,notamNotices=[],notamTotal=0,notamHasMore=false,notamAirport='',notamLastCheck='';
+const notamSafe=htmlEscape;
+function showNotamStatus(message){text('#notam-feed-status',message)}
+function notamCategory(n){if(n.isTfr)return 'AIRSPACE';return String(n.categoryCode||'OTHER').toUpperCase()}
+function notamFilterMatches(n,filter){
+ if(filter==='all')return true;
+ const code=notamCategory(n);
+ if(filter==='AIRSPACE')return code==='AIRSPACE'||code==='TFR'||n.isTfr;
+ if(filter==='OTHER')return !['RUNWAY','RWY_COND','TAXIWAY','AIRSPACE','TFR','NAVAID'].includes(code);
+ if(filter==='RUNWAY')return code==='RUNWAY'||code==='RWY_COND';
+ return code===filter;
+}
+function renderNotams(){
+ const area=$('#notam-list');area.replaceChildren();const filter=$('#notam-filter').value;
+ const filtered=notamNotices.filter(n=>notamFilterMatches(n,filter));
+ for(const n of filtered){
+   const item=document.createElement('article');item.className='notam-item';
+   const header=document.createElement('div');header.className='notam-item-top';
+   const number=document.createElement('strong');number.textContent=n.number||'NOTAM';
+   const tag=document.createElement('span');tag.className='notam-tag '+(n.isTfr?'critical':notamCategory(n).toLowerCase());tag.textContent=n.category||'Other';
+   header.append(number,tag);
+   const reading=document.createElement('p');reading.className='notam-reading';reading.textContent=n.reading||n.text||'Text unavailable';
+   const times=document.createElement('small');times.textContent='Effective '+(n.start?dateTime(n.start):'time unknown')+' — '+(n.end?dateTime(n.end):'permanent / end unknown');
+   const details=document.createElement('details');const summary=document.createElement('summary');summary.textContent='Full NOTAM text';
+   const raw=document.createElement('pre');raw.textContent=n.text||'No raw notice text';details.append(summary,raw);
+   item.append(header,reading,times,details);area.append(item);
+ }
+ if(!filtered.length){const empty=document.createElement('div');empty.className='empty';empty.textContent=notamNotices.length?'No loaded notices match this filter.':'No notices have been returned.';area.append(empty)}
+ text('#notam-count-detail',notamNotices.length+' of '+notamTotal+' reported notices loaded');
+ $('#notam-more').classList.toggle('hidden',!notamHasMore);
+}
+async function loadNotams(page=1){
+ const airport=current.homeId;
+ if(page===1){notamPage=1;notamNotices=[];notamHasMore=false;notamTotal=0;notamAirport=airport;}
+ showNotamStatus('Loading '+airport+' NOTAMs…');
+ $('#notam-more').disabled=true;
+ try{
+   const data=await fetchJSON('/api/notams?airport='+encodeURIComponent(airport)+'&page='+page);
+   if(current.homeId!==airport)return;
+   notamPage=page;notamNotices=notamNotices.concat(data.notams||[]);notamHasMore=!!data.hasMore;notamTotal=data.total;
+   notamLastCheck=data.checkedAt;text('#notam-checked','Checked '+dateTime(data.checkedAt));
+   text('#notam-home-id',String(data.total));text('#notam-summary',airport+' · reported active notices');
+   showNotamStatus(data.total===0?'Provider reported no active notices for '+airport+'.':'Active NOTAMs for '+airport+' · '+data.source);
+   renderNotams();
+ }catch(err){
+   if(current.homeId!==airport)return;
+   if(page===1){notamNotices=[];notamHasMore=false;notamTotal=0;$('#notam-list').replaceChildren();text('#notam-home-id','—');text('#notam-summary',airport+' · NOTAM data unavailable')}
+   showNotamStatus(err.message+' No notices are being represented as current.');
+   text('#notam-count-detail','Data unavailable');
+ }finally{$('#notam-more').disabled=false}
+}
+$('#notam-refresh').addEventListener('click',()=>loadNotams(1));
+$('#notam-filter').addEventListener('change',renderNotams);
+$('#notam-more').addEventListener('click',()=>{if(notamHasMore)loadNotams(notamPage+1)});
+$('#notam-expand').addEventListener('click',()=>{
+ const div=document.createElement('div');div.className='notam-modal-list';
+ const source=$('#notam-list');div.textContent='';for(const child of source.children)div.append(child.cloneNode(true));
+ showModal(current.homeId+' · Airport NOTAMs',div,'https://notams.aim.faa.gov/notamSearch/');
 });
 
 // Freely positioned, resizable card canvas. Handles use Pointer Events for mouse, touch and pen.
