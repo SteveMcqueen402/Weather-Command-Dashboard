@@ -27,7 +27,7 @@ function status(message){text('#notice',message)}
 async function fetchJSON(path){const r=await fetch(path);const data=await r.json().catch(()=>({error:'Invalid response'}));if(!r.ok)throw Error(data?.error||`${r.status} from ${path}`);return data}
 function setTab(group,selected){$$(`[data-${group}]`).forEach(el=>el.classList.toggle('active',el.dataset[group]===selected))}
 function showModal(title,content,source){text('#modal-title',title);const container=$('#modal-content');container.replaceChildren();if(typeof content==='string')container.innerHTML=content;else if(content)container.append(content);const l=$('#modal-link');l.href=source||'#';l.classList.toggle('hidden',!source);$('#modal').classList.remove('hidden');$('#modal-close').focus()}
-function closeModal(){if(current.modalMap){current.modalMap.remove();current.modalMap=null;current.modalRouteLayer=null;current.modalRouteRadarLayer=null}$('#modal').classList.add('hidden');$('#modal-content').replaceChildren()}
+function closeModal(){if(current.modalMapResizeObserver){current.modalMapResizeObserver.disconnect();current.modalMapResizeObserver=null}if(current.modalMap){current.modalMap.remove();current.modalMap=null;current.modalRouteLayer=null;current.modalRouteRadarLayer=null}$('#modal').classList.add('hidden');$('#modal-content').replaceChildren()}
 $('#modal-close').addEventListener('click',closeModal);$('#modal').addEventListener('click',e=>{if(e.target===$('#modal'))closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
 function openChart(key){const c=charts[key];if(!c)return;const wrap=document.createElement('div');const img=document.createElement('img');img.src=c.image+(c.image.includes('?')?'&':'?')+'v='+Math.floor(Date.now()/900000);img.alt=c.name;img.onerror=()=>{img.style.display='none';const p=document.createElement('p');p.className='source-note';p.textContent='Official chart temporarily unavailable. Open the WPC/SPC source using the link above.';wrap.append(p)};wrap.append(img);showModal(c.name,wrap,c.source)}
 $$('[data-open-chart]').forEach(el=>el.addEventListener('click',()=>openChart(el.dataset.openChart)));
@@ -42,7 +42,32 @@ function removeMainLayers(){if(current.mapLayer){current.map.removeLayer(current
 function drawRouteOn(map){const pts=current.route.filter(p=>p.coords);const group=L.layerGroup().addTo(map);if(pts.length){const coords=pts.map(x=>x.coords);pts.forEach(p=>{const name=htmlEscape(p.id), report=htmlEscape(p.metar?.rawOb||'METAR unavailable');L.marker(p.coords).addTo(group).bindPopup(`<strong>${name}</strong><p>${report}</p>`)});if(coords.length>1)L.polyline(coords,{color:'#55d9ff',weight:4,dashArray:'8 6'}).addTo(group);if(coords.length>1)map.fitBounds(L.latLngBounds(coords).pad(.18));else map.setView(coords[0],8)}else{L.marker(homeCoords()).bindPopup(current.homeId).addTo(group);map.setView(homeCoords(),current.mapStyle==='sectional'?8:6)}return group}
 function mapMode(mode){setTab('map',mode);$('#play-radar').classList.toggle('hidden',mode!=='radar'&&mode!=='route');$('#map-chart').classList.add('hidden');$('#main-map').classList.remove('hidden');$('#chart-unavailable').classList.add('hidden');removeMainLayers();if(mode==='radar'){current.map.setView(homeCoords(),current.mapStyle==='sectional'?8:6);current.mapLayer=addRadarLayer(current.map);$('#map-source').href='https://radar.weather.gov/';text('#map-source','NOAA radar ↗')}else if(mode==='route'){current.routeLayer=drawRouteOn(current.map);if(current.routeRadarOn)current.mapLayer=addRadarLayer(current.map);text('#map-caption','Straight-line planning display; not an approved flight route');$('#map-source').href='https://aviationweather.gov/';text('#map-source','Aviation Weather Center ↗');}else{const c=charts[mode];if(!c)return;$('#main-map').classList.add('hidden');$('#map-chart').classList.remove('hidden');const image=$('#map-chart-image');image.style.display='block';image.src=c.image+(c.image.includes('?')?'&':'?')+'v='+Math.floor(Date.now()/900000);image.alt=c.name;image.onerror=()=>{image.style.display='none';$('#chart-unavailable').classList.remove('hidden')};$('#map-source').href=c.source;text('#map-source','Official source ↗');text('#map-caption',c.name+' · verify analysis/valid time on chart')}if(mode==='radar'||mode==='route'){setTimeout(()=>{current.map.invalidateSize({pan:false});current.mapLayer?.redraw()},220);setTimeout(()=>current.map.invalidateSize({pan:false}),1000)}}
 $$('[data-map]').forEach(btn=>btn.addEventListener('click',()=>mapMode(btn.dataset.map)));
-function modalMap(){const node=document.createElement('div');node.className='modal-map';showModal('Regional Radar / Route Map',node,'https://radar.weather.gov/');current.modalMap=makeMap(node,7);if($('.tab.active')?.dataset.map==='route'){drawRouteOn(current.modalMap);if(current.routeRadarOn)current.modalAnimatedRadar=addRadarLayer(current.modalMap)}else current.modalAnimatedRadar=addRadarLayer(current.modalMap);setTimeout(()=>current.modalMap?.invalidateSize(),150)}
+function watchModalMapSize(node,map){
+ // Opening a modal and changing device orientation both alter Leaflet's viewport.
+ const resize=()=>{if(current.modalMap===map&&map._container?.isConnected)map.invalidateSize({pan:false,debounceMoveend:true})};
+ requestAnimationFrame(()=>requestAnimationFrame(resize));
+ setTimeout(resize,200);
+ if(typeof ResizeObserver!=='undefined'){
+  current.modalMapResizeObserver?.disconnect();
+  current.modalMapResizeObserver=new ResizeObserver(resize);
+  current.modalMapResizeObserver.observe(node);
+ }
+}
+function modalMap(){
+ const active=$('.tab.active')?.dataset.map;
+ const node=document.createElement('div');node.className='modal-map';
+ const mainMap=current.map;
+ const center=mainMap?.getCenter()||L.latLng(homeCoords());
+ const zoom=mainMap?.getZoom()||7;
+ showModal('Regional Radar / Route Map',node,'https://radar.weather.gov/');
+ current.modalMap=makeMap(node,zoom);
+ current.modalMap.setView(center,zoom,{animate:false});
+ if(active==='route'){
+  current.modalRouteLayer=drawRouteOn(current.modalMap);
+  if(current.routeRadarOn)current.modalAnimatedRadar=addRadarLayer(current.modalMap);
+ }else current.modalAnimatedRadar=addRadarLayer(current.modalMap);
+ watchModalMapSize(node,current.modalMap);
+}
 $('#expand-map').onclick=()=>{const active=$('.tab.active')?.dataset.map;if(charts[active])openChart(active);else modalMap()};$('#map-full').onclick=$('#expand-map').onclick;
 function pauseRadar(){current.radarPlaying=false;clearInterval(current.radarTimer);text('#play-radar','▶')}
 $('#play-radar').onclick=()=>{if(current.radarPlaying){pauseRadar();return}if((current.radar?.radar?.past||[]).length<2)return;current.radarPlaying=true;text('#play-radar','Ⅱ');current.radarTimer=setInterval(()=>{const frames=current.radar.radar.past;current.radarFrame=(current.radarFrame+1)%frames.length;if(['radar','route'].includes($('.tab.active')?.dataset.map))transitionRadar(current.map,'mapLayer');if(current.modalMap&&current.modalMap._container){if(current.modalAnimatedRadar&&current.modalMap.hasLayer(current.modalAnimatedRadar))current.modalMap.removeLayer(current.modalAnimatedRadar);current.modalAnimatedRadar=addRadarLayer(current.modalMap)}},1500)};
@@ -138,7 +163,7 @@ function expandRouteMap(){
  input.onchange=()=>{current.routeRadarOn=input.checked;$('#route-radar').checked=input.checked;
    if(current.modalRouteRadarLayer)current.modalMap.removeLayer(current.modalRouteRadarLayer);
    current.modalRouteRadarLayer=input.checked?addRadarLayer(current.modalMap):null;drawSmallRouteMap()};
- setTimeout(()=>current.modalMap?.invalidateSize(),150);
+ watchModalMapSize(mapNode,current.modalMap);
 }
 if($('#expand-route-map'))$('#expand-route-map').onclick=expandRouteMap;
 if($('#route-radar'))$('#route-radar').onchange=e=>{current.routeRadarOn=e.target.checked;drawSmallRouteMap()};

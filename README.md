@@ -13,3 +13,11 @@ Install the six files via GitHub Desktop; commit and push, then allow Render to 
 - AWC FB winds stations are not every airport: the input requires an official 3-letter FB reporting station.
 - Runways/frequencies are from community data and not authoritative. FBO, fuel, phone, airspace are not guessed if unreported. Confirm operational details with FAA sources and directly with the airport.
 - Live third-party provider responses, network responsiveness, and radar rendering on particular phones require testing after deploy.
+
+
+## v2.6 — enlarged radar map correction
+- Fixed conflicting modal image CSS that resized Leaflet's 256px radar tiles.
+- Enlarged map now starts at the exact current main-map center and zoom (route mode still fits the plotted route).
+- ResizeObserver and animation frame recalculate the map canvas after modal open, resize, or phone orientation change.
+- Route map enlargement receives the same viewport recovery.
+- Radar frames, existing FAA NOTAM integration and all other dashboards remain unchanged.
