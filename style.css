@@ -536,3 +536,14 @@ body:not(.free-layout-active) .bottom-grid{display:grid!important}
 .utc-label{font-size:9px;font-weight:800;letter-spacing:1.5px;color:#62c8ff;line-height:1.3}
 .utc-value{font:800 16px/1.25 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.7px;font-variant-numeric:tabular-nums;color:#7cfac2;white-space:nowrap}
 @media(max-width:680px){.utc-clock{min-width:94px;padding:4px 8px}.utc-value{font-size:14px}}
+
+/* v2.3: small, unobtrusive NWS alert indicator in persistent header. */
+.alerts-chip{display:inline-flex;align-items:center;justify-content:center;gap:7px;max-width:215px;min-height:35px;padding:7px 11px!important;background:#15242c!important;border:1px solid #426052!important;border-radius:8px!important;color:#a8e9c0!important;font-size:11px!important;font-weight:800;white-space:nowrap;transition:background .2s,border-color .2s}
+.alerts-chip-icon{font-size:13px;line-height:1}
+.alerts-chip-clear{background:#102820!important;border-color:#286548!important;color:#72e8a3!important}
+.alerts-chip-active{background:#3e231b!important;border-color:#ff8b4d!important;color:#ffbd88!important;box-shadow:0 0 0 1px #ff8b4d29}
+.alerts-chip-error{background:#222530!important;border-color:#4c586b!important;color:#bbc9dc!important}
+.alerts-chip-loading{background:#1a2730!important;border-color:#39546a!important;color:#d0deea!important}
+.alerts-chip:hover{filter:brightness(1.18)}
+@media(max-width:1180px){.alerts-chip{max-width:150px;padding:6px 8px!important}.alerts-chip #alerts-chip-label{overflow:hidden;text-overflow:ellipsis}}
+@media(max-width:760px){.alerts-chip{min-height:31px}.alerts-chip-icon{display:none}.alerts-chip #alerts-chip-label{font-size:10px}}

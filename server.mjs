@@ -141,6 +141,16 @@ async function officialChart(key){
 
 // FAA NMS OAuth2 credentials remain server-side. Never send them to browsers.
 const nmsTokenCache=new Map();
+// FAA NMS production onboarding: no more than one API data pull per three minutes.
+// This is a conservative, deployment-wide limiter for this single Render process.
+// Repeated requests for the same airport return a server-side cached result.
+// A different airport during the interval gets an explicit retry response; it NEVER
+// silently receives notices belonging to another airport.
+const NMS_MIN_PULL_INTERVAL_MS=180000;
+const nmsAirportCache=new Map();
+let nmsLastPullStart=0;
+let nmsPullInFlight=null;
+
 function isSecureNmsEndpoint(raw){try{return new URL(raw).protocol==='https:';}catch{return false;}}
 async function nmsAccessToken(auth,id,secret){
   const key=auth+'|'+id;
@@ -217,14 +227,30 @@ const server=http.createServer(async(req,res)=>{
       if(!clientId||!clientSecret){
         res.writeHead(503,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({configured:false,error:'FAA NMS access is not configured. Set NMS_API_CLIENT_ID and NMS_API_CLIENT_SECRET in Render.'}));return;
       }
-      if(env==='production' && (!process.env.NMS_API_BASE_URL || !process.env.NMS_AUTH_URL)){
-        res.writeHead(503,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:'Production NMS requires provider-confirmed NMS_API_BASE_URL and NMS_AUTH_URL.'}));return;
+      // Production URLs were provided explicitly by FAA NMS onboarding.
+      const base=process.env.NMS_API_BASE_URL||(env==='test'?'https://api-staging.cgifederal-aim.com/nmsapi':'https://api-nms.aim.faa.gov/nmsapi');
+      const auth=process.env.NMS_AUTH_URL||(env==='test'?'https://api-staging.cgifederal-aim.com/v1/auth/token':'https://api-nms.aim.faa.gov/v1/auth/token');
+      const key=env+'|'+airport;
+      const cached=nmsAirportCache.get(key);
+      if(cached&&Date.now()-cached.at<NMS_MIN_PULL_INTERVAL_MS){
+        res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
+        res.end(JSON.stringify({...cached.value,cached:true,cacheAgeSeconds:Math.floor((Date.now()-cached.at)/1000),nextRefreshAt:new Date(cached.at+NMS_MIN_PULL_INTERVAL_MS).toISOString()}));return;
       }
-      // Pre-production URLs are confirmed by the supplied FAA SoapUI configuration.
-      const base=process.env.NMS_API_BASE_URL||(env==='test'?'https://api-staging.cgifederal-aim.com/nmsapi':'');
-      const auth=process.env.NMS_AUTH_URL||(env==='test'?'https://api-staging.cgifederal-aim.com/v1/auth/token':'');
+      // Only one upstream NOTAM data fetch may be underway on this process.
+      // This gate protects FAA rate limits even when several tabs refresh at once.
+      if(nmsPullInFlight||Date.now()-nmsLastPullStart<NMS_MIN_PULL_INTERVAL_MS){
+        const retryMs=Math.max(1000,NMS_MIN_PULL_INTERVAL_MS-(Date.now()-nmsLastPullStart));
+        res.writeHead(429,{'Content-Type':'application/json','Cache-Control':'no-store','Retry-After':String(Math.ceil(retryMs/1000))});
+        res.end(JSON.stringify({configured:true,environment:env,airport,rateLimited:true,retryAfterSeconds:Math.ceil(retryMs/1000),error:'FAA NMS permits one NOTAM data pull every three minutes. Please retry this airport after the indicated interval. Existing cached airport results remain available.'}));return;
+      }
+      // Reserve the entire three-minute slot synchronously before first await.
+      nmsLastPullStart=Date.now();
+      nmsPullInFlight={airport,at:nmsLastPullStart};
       try{
         if(!isSecureNmsEndpoint(base)||!isSecureNmsEndpoint(auth))throw Error('Invalid NMS endpoint configuration (HTTPS required).');
+        // Never label staging responses production, including when Render has old URL overrides.
+        if(env==='production'&&(new URL(base).hostname!=='api-nms.aim.faa.gov'||new URL(auth).hostname!=='api-nms.aim.faa.gov'))throw Error('NMS_API_ENV is production but the endpoint URL is not the FAA production host. Remove old staging NMS_API_BASE_URL and NMS_AUTH_URL overrides from Render.');
+        if(env==='test'&&(new URL(base).hostname!=='api-staging.cgifederal-aim.com'||new URL(auth).hostname!=='api-staging.cgifederal-aim.com'))throw Error('NMS_API_ENV is test but an endpoint URL is not the FAA pre-production host.');
         const accessToken=await nmsAccessToken(auth,clientId,clientSecret);
         // Preserve the API's base path if supplied as the documented /nmsapi root.
         const prefix=base.replace(/\/$/,'');
@@ -238,10 +264,14 @@ const server=http.createServer(async(req,res)=>{
         const records=extractNmsNotams(data,airport);
         if(records===null)throw Error('NMS response format remains unrecognized. Please provide the sanitized response shape (field names only) from Render logs; no NOTAMs have been assumed.');
         res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-        res.end(JSON.stringify({configured:true,airport,notams:records,total:records.length,hasMore:false,page:1,limited:data?.data?.geojson?.length>250,source:env==='test'?'FAA NMS PRE-PRODUCTION (TEST ONLY)':'FAA NMS',environment:env,checkedAt:new Date().toISOString()}));return;
+        const value={configured:true,airport,notams:records,total:records.length,hasMore:false,page:1,limited:data?.data?.geojson?.length>250,source:env==='test'?'FAA NMS PRE-PRODUCTION (TEST ONLY)':'FAA NMS PRODUCTION',environment:env,checkedAt:new Date().toISOString()};
+        nmsAirportCache.set(key,{value,at:Date.now()});
+        res.end(JSON.stringify({...value,cached:false,nextRefreshAt:new Date(nmsLastPullStart+NMS_MIN_PULL_INTERVAL_MS).toISOString()}));return;
       }catch(e){
         const message=e.name==='TimeoutError'?'NMS request timed out.':e.message;
         res.writeHead(502,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({configured:true,error:message}));return;
+      }finally{
+        nmsPullInFlight=null;
       }
     }
     if(u.pathname==='/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({status:'ok'}));return;}
