@@ -21,3 +21,10 @@ Install the six files via GitHub Desktop; commit and push, then allow Render to 
 - ResizeObserver and animation frame recalculate the map canvas after modal open, resize, or phone orientation change.
 - Route map enlargement receives the same viewport recovery.
 - Radar frames, existing FAA NOTAM integration and all other dashboards remain unchanged.
+
+## v2.7 — Airport lookup data accuracy
+- Fixes the airport-lookup field elevation: does not interpret ambiguous AWC `elev` values as feet. Uses explicitly labelled `elevation_ft` from OurAirports when available, with a community-data caveat.
+- KOMA Eppley Airfield has verified FAA fields: surveyed elevation 984.5 feet MSL, Class C airspace, and a continuously staffed tower (FAA From the Flight Deck / published airport record). These are reference values, not a replacement for checking the current Chart Supplement or sectional.
+- Displays `Not verified — refer to current FAA sectional` for unsupported airspace fields instead of silently omitting them or inventing classifications.
+- Adds source labels to elevation/airspace/tower data. Other airport frequencies and runway data remain explicitly community sourced.
+- No change to FAA NMS configuration, NOTAM refresh limits or radar.

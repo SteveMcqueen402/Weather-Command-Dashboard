@@ -240,9 +240,9 @@ async function loadAirportDetails(id,section,stationData){
    ['Airport',fieldFrom(a,'name','airportName','site')],
    ['City / State',[fieldFrom(a,'city','municipality'),fieldFrom(a,'state','stateCode','region')].filter(Boolean).join(', ')],
    ['Airport type',fieldFrom(a,'type')],
-   ['Control tower',fieldFrom(a,'tower','towered','controlTower')],
-   ['Airspace / class',fieldFrom(a,'airspace','class','airspaceClass')],
-   ['Field elevation',fieldFrom(a,'elev','elevation')!=null?fieldFrom(a,'elev','elevation')+' ft':''],
+   ['Control tower',a.controlTower?String(a.controlTower)+(a.controlTowerSource?' · '+a.controlTowerSource:''):'Not independently verified'],
+   ['Airspace / class',a.airspaceClass?'Class '+a.airspaceClass+(a.airspaceSource?' · '+a.airspaceSource:''):'Not verified — refer to current FAA sectional'],
+   ['Field elevation (MSL)',Number.isFinite(Number(a.fieldElevationFt))&&a.fieldElevationFt!=null?Number(a.fieldElevationFt).toLocaleString('en-US',{maximumFractionDigits:1})+' ft'+(a.fieldElevationSource?' · '+a.fieldElevationSource:''):'Not verified — refer to FAA Chart Supplement'],
    ['Airport telephone',fieldFrom(a,'phone','telephone','airportPhone')],
    ['Fuel reported',fieldFrom(a,'fuel','fuelTypes')],
    ['Services / FBO',fieldFrom(a,'services','fbo','fboName')],
@@ -250,8 +250,8 @@ async function loadAirportDetails(id,section,stationData){
   for(const [label,value] of rows){const row=airportInfoRow(label,value);if(row)box.append(row)}
   if(d.frequencies?.length){const h=document.createElement('h4');h.textContent='Radio frequencies (community dataset)';box.append(h);for(const f of d.frequencies.slice(0,25)){const row=airportInfoRow(f.type||'COM',String(f.mhz)+' MHz'+(f.description?' · '+f.description:''));if(row)box.append(row)}}
   if(d.runways?.length){const h=document.createElement('h4');h.textContent='Runways (community dataset)';box.append(h);for(const r of d.runways.slice(0,12)){const label=[r.le_ident,r.he_ident].filter(Boolean).join(' / ')||'Runway';const dims=[r.length_ft&&r.length_ft+' ft',r.width_ft&&'× '+r.width_ft+' ft',r.surface].filter(Boolean).join(' ');const row=airportInfoRow(label,dims);if(row)box.append(row)}}
-  message.textContent=(d.frequencies?.length||d.runways?.length)?'Runways and frequencies are sourced from OurAirports and may be incomplete or outdated. Confirm all operational information in the FAA Chart Supplement, current NOTAMs, and with the airport/FBO.':'Detailed runways, communications, FBOs, fuel, and phones are not available from the connected data sources for this airport. Use official sources above to verify.';
- }catch(err){message.textContent='Airport details unavailable: '+err.message+'. Use the official sources linked above.';const a=stationData||{};for(const [label,value] of [['Airport',fieldFrom(a,'name','airportName')],['Elevation',fieldFrom(a,'elev','elevation')]]){const row=airportInfoRow(label,value);if(row)box.append(row)}}
+  message.textContent=(d.frequencies?.length||d.runways?.length)?'Runways and frequencies are from OurAirports (community data). Airport elevation and airspace show their own sources above. Verify every value against current FAA publications, NOTAMs and airport/FBO.':'Detailed runways, communications, FBOs, fuel, and phones are not available from the connected data sources for this airport. Use official sources above to verify.';
+ }catch(err){message.textContent='Airport details unavailable: '+err.message+'. Elevation and airspace are not verified. Use the official FAA sources linked above.';const a=stationData||{};const row=airportInfoRow('Airport',fieldFrom(a,'name','airportName'));if(row)box.append(row)}
 }
 
 function openAirport(p){

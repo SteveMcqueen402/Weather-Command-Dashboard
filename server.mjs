@@ -302,6 +302,14 @@ const server=http.createServer(async(req,res)=>{
       if(!/^[A-Z0-9]{3,4}$/.test(id)){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Invalid airport identifier'}));return;}
       const icao=id.length===3?'K'+id:id;
       let airport=null,frequencies=[],runways=[],sourceError='';
+      // AWC airport `elev` is not used as an FAA-confirmed feet value. Keep
+      // elevation units explicit and prefer elevation_ft from the airport dataset.
+      const publishedAirportOverrides={
+        KOMA:{name:'Eppley Airfield',city:'Omaha',state:'Nebraska',
+          fieldElevationFt:984.5,fieldElevationSource:'FAA airport record (surveyed)',
+          airspaceClass:'C',airspaceSource:'FAA From the Flight Deck — OMA',
+          controlTower:'Yes — continuous',controlTowerSource:'FAA From the Flight Deck — OMA'}
+      };
       const results=await Promise.allSettled([
         upstream('https://aviationweather.gov/api/data/airport?ids='+encodeURIComponent(icao)+'&format=json',86400000),
         communityCsv('airports'),communityCsv('airport-frequencies'),communityCsv('runways')
@@ -311,11 +319,22 @@ const server=http.createServer(async(req,res)=>{
         const list=results[1].value;
         const a=list.find(x=>[x.ident,x.gps_code,x.icao_code,x.local_code].some(code=>code&&[icao,id,icao.slice(1)].includes(code.toUpperCase())));
         if(a){
-          if(!airport)airport={name:a.name,city:a.municipality,state:a.iso_region,type:a.type,elev:a.elevation_ft};
+          if(!airport)airport={name:a.name,city:a.municipality,state:a.iso_region,type:a.type};
+          // OurAirports elevation_ft has documented units of feet MSL.
+          const communityElevation=Number(a.elevation_ft);
+          if(a.elevation_ft!==''&&Number.isFinite(communityElevation)&&communityElevation>=-1500&&communityElevation<=15000){
+            airport.fieldElevationFt=communityElevation;
+            airport.fieldElevationSource='OurAirports community dataset (verify with FAA)';
+          }
           frequencies=results[2].value.filter(f=>f.airport_ref===a.id).map(f=>({type:f.type,mhz:f.frequency_mhz,description:f.description}));
           runways=results[3].value.filter(r=>r.airport_ref===a.id).map(r=>({le_ident:r.le_ident,he_ident:r.he_ident,length_ft:r.length_ft,width_ft:r.width_ft,surface:r.surface}));
         }
       }else sourceError='Community runway/frequency data temporarily unavailable';
+      if(publishedAirportOverrides[icao]){
+        airport={...(airport||{}),...publishedAirportOverrides[icao]};
+      }
+      // Do not infer controlled-airspace class from the existence of a tower,
+      // coordinates, airport size or METAR. Class must be independently sourced.
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=3600'});res.end(JSON.stringify({id:icao,airport,frequencies,runways,sourceError,checkedAt:new Date().toISOString()}));return;
     }
     if(u.pathname==='/api/airport-route'){
