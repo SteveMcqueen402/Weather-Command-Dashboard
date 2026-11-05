@@ -28,3 +28,13 @@ Install the six files via GitHub Desktop; commit and push, then allow Render to 
 - Displays `Not verified — refer to current FAA sectional` for unsupported airspace fields instead of silently omitting them or inventing classifications.
 - Adds source labels to elevation/airspace/tower data. Other airport frequencies and runway data remain explicitly community sourced.
 - No change to FAA NMS configuration, NOTAM refresh limits or radar.
+
+
+## v2.8 — Local FAA airport identifiers in Flight Planner
+- Preserves FAA identifiers such as 84Y, 2V2, and 0B5 instead of incorrectly adding a K prefix. Three-letter alphabetic US identifiers such as OMA continue to normalize to KOMA.
+- Route endpoint obtains airport coordinates from AWC airport records where available and from the OurAirports open dataset when not; includes a published fallback for 84Y, Bloomfield Municipal Airport, Nebraska (42.5797244, -97.6736753).
+- Allows route-distance / estimated time / fuel calculations for airports without METAR and TAF observations. Marks unavailable observations explicitly.
+- KOMA → 84Y is the intended regression test. Flight planning calculations remain straight-line estimates, not obstacle, airspace, or weather-clearance validation.
+- Existing NOTAM throttling, data sources, and environment variables are unchanged.
+
+- Home Airport and Airport Lookup accept FAA local identifiers such as 84Y; do not add a K to identifiers containing digits. Winds Aloft requires an actual 3-letter FB forecast station, not an airport identifier. The UI now explains that distinction rather than inventing winds for 84Y.

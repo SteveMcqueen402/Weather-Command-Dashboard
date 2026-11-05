@@ -94,10 +94,20 @@ async function loadAlerts(){
    label.textContent='Alerts unavailable';chip.title='NWS alerts could not be checked · click for details';
  }
 }
-function normalize(code){const c=String(code||'').trim().toUpperCase();if(!/^[A-Z0-9]{3,4}$/.test(c))throw Error('Enter a 3- or 4-character airport identifier');return c.length===3?'K'+c:c}
+function normalize(code){const c=String(code||'').trim().toUpperCase();if(!/^[A-Z0-9]{3,4}$/.test(c))throw Error('Enter a 3- or 4-character airport identifier');return c.length===3&&/^[A-Z]{3}$/.test(c)?'K'+c:c}
 function coordsOf(x){const lat=Number(x?.lat??x?.latitude??x?.latitude_deg??x?.latDecimal),lon=Number(x?.lon??x?.longitude??x?.longitude_deg??x?.lonDecimal);return Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180?[lat,lon]:null}
 function codeOf(x){return String(x?.icaoId??x?.icao??x?.id??x?.ident??x?.stationId??'').toUpperCase()}
-async function lookupAirports(ids){const resp=await fetchJSON('/api/airport-route?ids='+encodeURIComponent(ids.join(',')));return ids.map(id=>({id,metar:resp.metars?.find(x=>codeOf(x)===id),taf:resp.tafs?.find(x=>codeOf(x)===id),airport:resp.airports?.find(x=>codeOf(x)===id)||null,coords:coordsOf(resp.airports?.find(x=>codeOf(x)===id))||coordsOf(resp.metars?.find(x=>codeOf(x)===id))||(id===current.homeId?homeCoords():null)}))}
+async function lookupAirports(ids){
+ const resp=await fetchJSON('/api/airport-route?ids='+encodeURIComponent(ids.join(',')));
+ const sameAirport=(x,id)=>[x?.icaoId,x?.icao,x?.id,x?.ident,x?.stationId,x?.gps_code,x?.icao_code,x?.local_code].filter(Boolean).some(code=>String(code).toUpperCase()===id);
+ return ids.map(id=>{
+   const metar=resp.metars?.find(x=>sameAirport(x,id))||null;
+   const taf=resp.tafs?.find(x=>sameAirport(x,id))||null;
+   const airport=resp.airports?.find(x=>sameAirport(x,id))||null;
+   const coords=coordsOf(airport)||coordsOf(metar)||(id===current.homeId?homeCoords():null);
+   return {id,metar,taf,airport,coords};
+ });
+}
 function distanceNM(a,b){const rad=x=>x*Math.PI/180;const dlat=rad(b[0]-a[0]),dlon=rad(b[1]-a[1]);const h=Math.sin(dlat/2)**2+Math.cos(rad(a[0]))*Math.cos(rad(b[0]))*Math.sin(dlon/2)**2;return 3440.065*2*Math.asin(Math.min(1,Math.sqrt(h)))}
 function calculateRoute(){let sum=0;let complete=true;for(let i=1;i<current.route.length;i++){const a=current.route[i-1].coords,b=current.route[i].coords;if(a&&b)sum+=distanceNM(a,b);else complete=false}const gs=Number($('#groundspeed').value),gph=Number($('#fuelburn').value);const can=complete&&current.route.length>1&&gs>0&&gph>0;text('#distance',can?sum.toFixed(0)+' NM':'—');text('#ete',can?(sum/gs).toFixed(1)+' h':'—');text('#fuel',can?(sum/gs*gph).toFixed(1)+' gal':'—');return can}
 function updateForecastLocations(){const selected=$('#forecast-select').value;const opts=[{id:current.homeId},...current.route.filter(x=>x.id!==current.homeId)].filter((p,i,a)=>a.findIndex(x=>x.id===p.id)===i);$('#forecast-select').replaceChildren();opts.forEach(p=>{const option=document.createElement('option');option.value=p.id;option.textContent=p.id;$('#forecast-select').append(option)});$('#forecast-select').value=opts.some(x=>x.id===selected)?selected:current.route.at(-1)?.id||current.homeId;loadLocationForecast()}
@@ -169,7 +179,7 @@ if($('#expand-route-map'))$('#expand-route-map').onclick=expandRouteMap;
 if($('#route-radar'))$('#route-radar').onchange=e=>{current.routeRadarOn=e.target.checked;drawSmallRouteMap()};
 
 function drawRouteWeather(){const host=$('#route-weather');if(!host)return;host.replaceChildren();if(!current.route.length){host.textContent='No route has been entered.';return}for(const p of current.route){const line=document.createElement('div');line.className='airport-row';const btn=document.createElement('button');btn.textContent=p.id;btn.title='Show airport weather';btn.onclick=()=>openAirport(p);const cat=document.createElement('span');cat.textContent=p.metar?.fltCat||'NO METAR';cat.className='category '+(p.metar?.fltCat||'');line.append(btn,cat);host.append(line)}}
-async function loadRoute(e){e?.preventDefault();let ids;try{ids=[normalize($('#route-from').value),...$('#route-via').value.split(',').map(x=>x.trim()).filter(Boolean).map(normalize),normalize($('#route-to').value)];if(ids.length>12)throw Error('Use at most 12 airports');}catch(err){text('#route-status',err.message);return}const button=$('#route-form button[type=submit]');button.disabled=true;text('#route-status','Loading airport observations and route positions…');try{current.route=await lookupAirports(ids);drawRouteWeather();drawSmallRouteMap();const can=calculateRoute();const found=current.route.filter(x=>x.metar).length;text('#route-status',`${found}/${ids.length} METARs found · ${can?'Straight-line distance, time and fuel estimates shown.':'Some airport coordinates unavailable; estimate not calculated.'} Not an operational flight plan.`);updateForecastLocations();if($('.tab.active')?.dataset.map==='route')mapMode('route')}catch(err){text('#route-status','Route lookup failed: '+err.message)}finally{button.disabled=false}}
+async function loadRoute(e){e?.preventDefault();let ids;try{ids=[normalize($('#route-from').value),...$('#route-via').value.split(',').map(x=>x.trim()).filter(Boolean).map(normalize),normalize($('#route-to').value)];if(ids.length>12)throw Error('Use at most 12 airports');}catch(err){text('#route-status',err.message);return}const button=$('#route-form button[type=submit]');button.disabled=true;text('#route-status','Loading airport observations and route positions…');try{current.route=await lookupAirports(ids);drawRouteWeather();drawSmallRouteMap();const can=calculateRoute();const found=current.route.filter(x=>x.metar).length;const noReports=current.route.filter(x=>!x.metar).map(x=>x.id);text('#route-status',`${found}/${ids.length} airport METARs available · ${can?'Straight-line distance, time and fuel estimates shown.':'Some airport coordinates unavailable; estimate not calculated.'}${noReports.length?' No on-field METAR: '+noReports.join(', ')+'.':''} Not an operational flight plan.`);updateForecastLocations();if($('.tab.active')?.dataset.map==='route')mapMode('route')}catch(err){text('#route-status','Route lookup failed: '+err.message)}finally{button.disabled=false}}
 $('#route-form').addEventListener('submit',loadRoute);
 // Airport lookup includes independent NOTAM retrieval for the LOOKED-UP airport,
 // not the home airport. Data remains labeled as staging when NMS_API_ENV=test.
@@ -287,7 +297,7 @@ function windRowsToElement(report){
  return root;
 }
 async function loadWinds(){
- const fcst=$('#wind-cycle').value,station=$('#wind-station').value.trim().toUpperCase().replace(/^K(?=[A-Z]{3}$)/,'');$('#wind-station').value=station;if(!/^[A-Z]{3}$/.test(station)){text('#winds-status','Enter a valid three-letter FB forecast station (e.g. OMA or DSM).');return;}
+ const fcst=$('#wind-cycle').value,station=$('#wind-station').value.trim().toUpperCase().replace(/^K(?=[A-Z]{3}$)/,'');$('#wind-station').value=station;if(!/^[A-Z]{3}$/.test(station)){text('#winds-status',/^[A-Z0-9]{3,4}$/.test(station)?`${station} is an airport identifier, not an FB winds-aloft forecast station. Enter an official 3-letter winds station (e.g. OMA, OFK, DSM); do not prefix numeric identifiers with K.`:'Enter an official 3-letter winds/temperatures forecast station (e.g. OMA, OFK, DSM).');text('#winds-rows','Winds aloft are published for designated forecast stations, not every airport.');return;}
  text('#winds-status',`Loading ${station} · ${fcst}-hour forecast…`);
  try{
    const d=await fetchJSON(`/api/winds-aloft?fcst=${encodeURIComponent(fcst)}&station=${encodeURIComponent(station)}`);
@@ -333,7 +343,7 @@ function refreshHomeLabels(){
  const forecast=$('#forecast-select');if(forecast){forecast.replaceChildren();const option=document.createElement('option');option.value=current.homeId;option.textContent=current.homeId+' · home';forecast.append(option)}
  text('#notam-panel-airport',current.homeId);text('#notam-home-id',current.homeId);text('#notam-summary','NOTAM feed pending');
  const label=$('#wind')?.closest('.stat')?.querySelector('.stathead span');if(label)label.textContent='WINDS AT '+current.homeId;
- const windStations=$('#wind-station');if(windStations){const short=current.homeId.slice(1);if(!windStations.dataset.userSelected&&/^[A-Z]{3}$/.test(short))windStations.value=short}
+ const windStations=$('#wind-station');if(windStations){const short=/^K[A-Z]{3}$/.test(current.homeId)?current.homeId.slice(1):null;if(!windStations.dataset.userSelected&&short)windStations.value=short;else if(!short)text('#winds-status',`${current.homeId} is not automatically a winds-aloft reporting station. Select a published 3-letter FB station (such as OFK or OMA).`)}
 }
 refreshHomeLabels();
 $('#home-airport-form').addEventListener('submit',async e=>{

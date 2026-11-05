@@ -300,7 +300,7 @@ const server=http.createServer(async(req,res)=>{
     if(u.pathname==='/api/airport-info'){
       const id=(u.searchParams.get('id')||'').trim().toUpperCase();
       if(!/^[A-Z0-9]{3,4}$/.test(id)){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Invalid airport identifier'}));return;}
-      const icao=id.length===3?'K'+id:id;
+      const icao=id.length===3&&/^[A-Z]{3}$/.test(id)?'K'+id:id;
       let airport=null,frequencies=[],runways=[],sourceError='';
       // AWC airport `elev` is not used as an FAA-confirmed feet value. Keep
       // elevation units explicit and prefer elevation_ft from the airport dataset.
@@ -340,17 +340,46 @@ const server=http.createServer(async(req,res)=>{
     if(u.pathname==='/api/airport-route'){
       const raw=(u.searchParams.get('ids')||'').toUpperCase().split(/[\s,;>-]+/).filter(Boolean);
       if(!raw.length||raw.length>12||raw.some(id=>!/^[A-Z0-9]{3,4}$/.test(id))){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Enter 1–12 valid 3- or 4-character airport identifiers.'}));return;}
-      const ids=raw.map(id=>id.length===3?'K'+id:id);
-      const unique=[...new Set(ids)];const joined=unique.join(',');
+      const ids=raw.map(id=>id.length===3&&/^[A-Z]{3}$/.test(id)?'K'+id:id);
+      const unique=[...new Set(ids)];
+      // Local FAA identifiers such as 84Y are valid airports, but not ICAO
+      // stations. Do not manufacture K84Y or require on-field METARs/TAFs.
+      const aviationIds=unique.filter(id=>/^K[A-Z]{3}$/.test(id)||/^[A-Z]{4}$/.test(id));
+      const joined=aviationIds.join(',');
       const base='https://aviationweather.gov/api/data/';
       const results=await Promise.allSettled([
-        upstream(base+'metar?ids='+joined+'&format=json',180000),
-        upstream(base+'taf?ids='+joined+'&format=json',300000),
-        upstream(base+'airport?ids='+joined+'&format=json',86400000)
+        joined?upstream(base+'metar?ids='+encodeURIComponent(joined)+'&format=json',180000):Promise.resolve([]),
+        joined?upstream(base+'taf?ids='+encodeURIComponent(joined)+'&format=json',300000):Promise.resolve([]),
+        joined?upstream(base+'airport?ids='+encodeURIComponent(joined)+'&format=json',86400000):Promise.resolve([]),
+        communityCsv('airports')
       ]);
       const array=i=>results[i].status==='fulfilled'&&Array.isArray(results[i].value)?results[i].value:[];
       const metars=array(0),tafs=array(1),airports=array(2);
-      if(results.every(r=>r.status==='rejected')){res.writeHead(502,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Aviation Weather Center is temporarily unavailable.'}));return;}
+      const community=array(3);
+      const matching=(row,id)=>[row.ident,row.gps_code,row.icao_code,row.local_code].some(code=>String(code||'').toUpperCase()===id);
+      for(const id of unique){
+        if(airports.some(row=>[row.icaoId,row.icao,row.ident,row.id].some(code=>String(code||'').toUpperCase()===id)))continue;
+        const row=community.find(row=>matching(row,id));
+        if(row){
+          const lat=Number(row.latitude_deg),lon=Number(row.longitude_deg);
+          if(Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180){
+            airports.push({icaoId:id,ident:id,name:row.name,lat,lon,
+              latitude:lat,longitude:lon,locationSource:'OurAirports open dataset; verify current FAA records',
+              elevation_ft:row.elevation_ft||null});
+          }
+        }
+      }
+      // A published-location fallback for 84Y; only used if the general
+      // open airport database cannot be fetched or lacks the station.
+      if(unique.includes('84Y')&&!airports.some(row=>String(row.icaoId||row.ident).toUpperCase()==='84Y')){
+        airports.push({icaoId:'84Y',ident:'84Y',name:'Bloomfield Municipal Airport',
+          lat:42.5797244,lon:-97.6736753,
+          locationSource:'Published FAA airport coordinates; verify current FAA records'});
+      }
+      if(results.slice(0,3).every(r=>r.status==='rejected')&&!airports.length){
+        res.writeHead(502,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({error:'Airport location data is temporarily unavailable.'}));return;
+      }
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=120'});
       res.end(JSON.stringify({ids,metars,tafs,airports,partial:results.some(r=>r.status==='rejected'),checkedAt:new Date().toISOString()}));return;
     }
