@@ -109,7 +109,81 @@ async function lookupAirports(ids){
  });
 }
 function distanceNM(a,b){const rad=x=>x*Math.PI/180;const dlat=rad(b[0]-a[0]),dlon=rad(b[1]-a[1]);const h=Math.sin(dlat/2)**2+Math.cos(rad(a[0]))*Math.cos(rad(b[0]))*Math.sin(dlon/2)**2;return 3440.065*2*Math.asin(Math.min(1,Math.sqrt(h)))}
-function calculateRoute(){let sum=0;let complete=true;for(let i=1;i<current.route.length;i++){const a=current.route[i-1].coords,b=current.route[i].coords;if(a&&b)sum+=distanceNM(a,b);else complete=false}const gs=Number($('#groundspeed').value),gph=Number($('#fuelburn').value);const can=complete&&current.route.length>1&&gs>0&&gph>0;text('#distance',can?sum.toFixed(0)+' NM':'—');text('#ete',can?(sum/gs).toFixed(1)+' h':'—');text('#fuel',can?(sum/gs*gph).toFixed(1)+' gal':'—');return can}
+// Winds-aloft route planning. Forecast direction is the direction wind comes FROM.
+// Each leg uses the same explicitly selected FB station; this is a forecast estimate,
+// not an along-route gridded wind forecast or an aircraft performance calculation.
+const routeWindState={report:null,key:'',error:'',request:0};
+const windStation=()=>String($('#route-wind-station')?.value||'').trim().toUpperCase();
+const windRequestKey=()=>`${windStation()}/${$('#route-wind-cycle').value}`;
+function routeBearing(a,b){
+ const toRad=v=>v*Math.PI/180,fromRad=v=>v*180/Math.PI;
+ const y=Math.sin(toRad(b[1]-a[1]))*Math.cos(toRad(b[0]));
+ const x=Math.cos(toRad(a[0]))*Math.sin(toRad(b[0]))-Math.sin(toRad(a[0]))*Math.cos(toRad(b[0]))*Math.cos(toRad(b[1]-a[1]));
+ return (fromRad(Math.atan2(y,x))+360)%360;
+}
+function windAtAltitude(rows,alt){
+ const usable=(rows||[]).filter(r=>Number.isFinite(Number(r.altitude))&&Number.isFinite(Number(r.speed))&&(r.calm||Number.isFinite(Number(r.direction)))).sort((a,b)=>a.altitude-b.altitude);
+ if(!usable.length)return null;
+ const vector=r=>{const theta=(Number(r.direction||0)*Math.PI/180);return {east:-Number(r.speed)*Math.sin(theta),north:-Number(r.speed)*Math.cos(theta)}};
+ const pair=usable.reduce((a,r)=>{if(r.altitude<=alt)a.low=r;if(r.altitude>=alt&&!a.high)a.high=r;return a},{low:null,high:null});
+ const low=pair.low||pair.high,high=pair.high||pair.low;
+ const v1=vector(low),v2=vector(high),frac=low.altitude===high.altitude?0:(alt-low.altitude)/(high.altitude-low.altitude);
+ return {east:v1.east+(v2.east-v1.east)*frac,north:v1.north+(v2.north-v1.north)*frac,sourceAltitudes:low.altitude===high.altitude?[low.altitude]:[low.altitude,high.altitude],extrapolated:alt<usable[0].altitude||alt>usable.at(-1).altitude};
+}
+function routeLegSpeed(tas,bearing,w){
+ const t=bearing*Math.PI/180;
+ const along=w.north*Math.cos(t)+w.east*Math.sin(t);
+ const cross=w.east*Math.cos(t)-w.north*Math.sin(t);
+ if(Math.abs(cross)>=tas)return null; // aircraft cannot hold this track
+ const gs=Math.sqrt(tas*tas-cross*cross)+along;
+ return gs>1?{gs,along,cross,wca:Math.asin(-cross/tas)*180/Math.PI}:null;
+}
+function calculateRoute(){
+ const root=$('#route-leg-breakdown');root?.replaceChildren();
+ let sum=0,complete=current.route.length>1;
+ for(let i=1;i<current.route.length;i++){
+  const a=current.route[i-1].coords,b=current.route[i].coords;
+  if(a&&b)sum+=distanceNM(a,b);else complete=false;
+ }
+ const tas=Number($('#groundspeed').value),gph=Number($('#fuelburn').value),alt=Number($('#route-altitude').value);
+ const valid=complete&&tas>0&&gph>0;
+ const windOk=valid&&routeWindState.key===windRequestKey()&&!routeWindState.error&&routeWindState.report?.available&&alt>=3000&&alt<=18000;
+ const wind=windOk?windAtAltitude(routeWindState.report.rows,alt):null;
+ let hours=0,impossible=false,gsWeighted=0;
+ if(valid){for(let i=1;i<current.route.length;i++){
+  const prev=current.route[i-1],next=current.route[i],nm=distanceNM(prev.coords,next.coords),heading=routeBearing(prev.coords,next.coords);
+  const correction=wind?routeLegSpeed(tas,heading,wind):{gs:tas,along:0,cross:0,wca:0};
+  if(!correction){impossible=true;break}
+  const legHours=nm/correction.gs;hours+=legHours;gsWeighted+=nm;
+  if(root){const line=document.createElement('div');line.className='route-leg-line';line.textContent=`${prev.id} → ${next.id} · ${nm.toFixed(1)} NM · ${Math.round(heading).toString().padStart(3,'0')}° true · ${correction.gs.toFixed(0)} kt GS · ${Math.round(legHours*60)} min${wind?' · '+(correction.along>=0?'tailwind ':'headwind ')+Math.abs(correction.along).toFixed(0)+' kt':''}`;root.append(line)}
+ }}
+ text('#distance',valid?sum.toFixed(0)+' NM':'—');text('#ete',valid&&!impossible?(hours*60).toFixed(0)+' min':'—');text('#fuel',valid&&!impossible?(hours*gph).toFixed(1)+' gal':'—');
+ const msg=$('#route-wind-summary');if(msg){
+  msg.classList.toggle('has-winds',Boolean(wind));
+  if(!valid)msg.textContent='Enter a valid route, TAS and fuel burn to calculate travel time.';
+  else if(impossible)msg.textContent='Selected wind exceeds the aircraft’s ability to maintain the course at this TAS. Adjust altitude, TAS, or forecast.';
+  else if(wind){const speed=Math.hypot(wind.east,wind.north);const toward=(Math.atan2(wind.east,wind.north)*180/Math.PI+360)%360;const from=(toward+180)%360;msg.textContent=`WIND-ADJUSTED · ${windStation()} · ${$('#route-wind-cycle').value}h · ${alt.toLocaleString()} ft MSL · ${speed.toFixed(0)} kt from ${Math.round(from).toString().padStart(3,'0')}° true · Avg ${(sum/hours).toFixed(0)} kt GS${wind.extrapolated?' · Nearest available altitude (extrapolation not used)':''}. Forecast ${routeWindState.report.header?.find(h=>/VALID/i.test(h))||'valid time: verify source'}.`}
+  else msg.textContent=`STILL-AIR ONLY · ${routeWindState.error||'No applicable winds-aloft forecast loaded'} · ${tas.toFixed(0)} kt TAS assumed as groundspeed. Wind correction not included.`;
+ }
+ return valid&&!impossible;
+}
+async function loadRouteWinds(){
+ const station=windStation(),cycle=$('#route-wind-cycle').value,key=windRequestKey();
+ const request=++routeWindState.request;routeWindState.report=null;routeWindState.key=key;routeWindState.error='';
+ if(!/^[A-Z]{3}$/.test(station)){routeWindState.error='Enter a published 3-letter FB winds station (e.g. OMA or OFK)';calculateRoute();return}
+ if(!current.route.length){calculateRoute();return}
+ text('#route-wind-summary',`Loading official ${station} ${cycle}h winds aloft…`);
+ try{const report=await fetchJSON(`/api/winds-aloft?station=${encodeURIComponent(station)}&fcst=${encodeURIComponent(cycle)}`);
+  if(request!==routeWindState.request)return;
+  if(!report.available||!report.rows?.length)throw Error(`No ${station} FB forecast available`);
+  routeWindState.report=report;
+ }catch(err){if(request!==routeWindState.request)return;routeWindState.error=err.message}
+ calculateRoute();
+}
+$('#route-wind-refresh').addEventListener('click',loadRouteWinds);
+for(const name of ['groundspeed','fuelburn','route-altitude'])$('#'+name).addEventListener('input',calculateRoute);
+for(const name of ['route-wind-cycle','route-wind-station'])$('#'+name).addEventListener('change',loadRouteWinds);
+$('#route-wind-station').addEventListener('input',()=>{routeWindState.report=null;routeWindState.error='Forecast station changed; update route winds';calculateRoute()});
 function updateForecastLocations(){const selected=$('#forecast-select').value;const opts=[{id:current.homeId},...current.route.filter(x=>x.id!==current.homeId)].filter((p,i,a)=>a.findIndex(x=>x.id===p.id)===i);$('#forecast-select').replaceChildren();opts.forEach(p=>{const option=document.createElement('option');option.value=p.id;option.textContent=p.id;$('#forecast-select').append(option)});$('#forecast-select').value=opts.some(x=>x.id===selected)?selected:current.route.at(-1)?.id||current.homeId;loadLocationForecast()}
 
 const categoryClass=cat=>['VFR','MVFR','IFR','LIFR'].includes(cat)?cat.toLowerCase():'unknown';
@@ -179,7 +253,7 @@ if($('#expand-route-map'))$('#expand-route-map').onclick=expandRouteMap;
 if($('#route-radar'))$('#route-radar').onchange=e=>{current.routeRadarOn=e.target.checked;drawSmallRouteMap()};
 
 function drawRouteWeather(){const host=$('#route-weather');if(!host)return;host.replaceChildren();if(!current.route.length){host.textContent='No route has been entered.';return}for(const p of current.route){const line=document.createElement('div');line.className='airport-row';const btn=document.createElement('button');btn.textContent=p.id;btn.title='Show airport weather';btn.onclick=()=>openAirport(p);const cat=document.createElement('span');cat.textContent=p.metar?.fltCat||'NO METAR';cat.className='category '+(p.metar?.fltCat||'');line.append(btn,cat);host.append(line)}}
-async function loadRoute(e){e?.preventDefault();let ids;try{ids=[normalize($('#route-from').value),...$('#route-via').value.split(',').map(x=>x.trim()).filter(Boolean).map(normalize),normalize($('#route-to').value)];if(ids.length>12)throw Error('Use at most 12 airports');}catch(err){text('#route-status',err.message);return}const button=$('#route-form button[type=submit]');button.disabled=true;text('#route-status','Loading airport observations and route positions…');try{current.route=await lookupAirports(ids);drawRouteWeather();drawSmallRouteMap();const can=calculateRoute();const found=current.route.filter(x=>x.metar).length;const noReports=current.route.filter(x=>!x.metar).map(x=>x.id);text('#route-status',`${found}/${ids.length} airport METARs available · ${can?'Straight-line distance, time and fuel estimates shown.':'Some airport coordinates unavailable; estimate not calculated.'}${noReports.length?' No on-field METAR: '+noReports.join(', ')+'.':''} Not an operational flight plan.`);updateForecastLocations();if($('.tab.active')?.dataset.map==='route')mapMode('route')}catch(err){text('#route-status','Route lookup failed: '+err.message)}finally{button.disabled=false}}
+async function loadRoute(e){e?.preventDefault();let ids;try{ids=[normalize($('#route-from').value),...$('#route-via').value.split(',').map(x=>x.trim()).filter(Boolean).map(normalize),normalize($('#route-to').value)];if(ids.length>12)throw Error('Use at most 12 airports');}catch(err){text('#route-status',err.message);return}const button=$('#route-form button[type=submit]');button.disabled=true;text('#route-status','Loading airport observations and route positions…');try{current.route=await lookupAirports(ids);drawRouteWeather();drawSmallRouteMap();const can=calculateRoute();loadRouteWinds();const found=current.route.filter(x=>x.metar).length;const noReports=current.route.filter(x=>!x.metar).map(x=>x.id);text('#route-status',`${found}/${ids.length} airport METARs available · ${can?'Straight-line distance shown; loading forecast winds for ETA/fuel.':'Some airport coordinates unavailable; estimate not calculated.'}${noReports.length?' No on-field METAR: '+noReports.join(', ')+'.':''} Not an operational flight plan.`);updateForecastLocations();if($('.tab.active')?.dataset.map==='route')mapMode('route')}catch(err){text('#route-status','Route lookup failed: '+err.message)}finally{button.disabled=false}}
 $('#route-form').addEventListener('submit',loadRoute);
 // Airport lookup includes independent NOTAM retrieval for the LOOKED-UP airport,
 // not the home airport. Data remains labeled as staging when NMS_API_ENV=test.
@@ -317,7 +391,7 @@ $('#quick-plan').onclick=()=>{
  $('#route-form').requestSubmit();
 };
 
-let refreshBusy=false;async function refresh(){if(refreshBusy)return;refreshBusy=true;text('#checked','Refreshing sources…');status('');try{await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadRadar(),loadLocationForecast(),loadWinds(),loadNotams()]);text('#checked','Updated '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZoneName:'short'}))}finally{refreshBusy=false}}
+let refreshBusy=false;async function refresh(){if(refreshBusy)return;refreshBusy=true;text('#checked','Refreshing sources…');status('');try{await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadRadar(),loadLocationForecast(),loadWinds(),loadNotams(),...(current.route.length?[loadRouteWinds()]:[])]);text('#checked','Updated '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZoneName:'short'}))}finally{refreshBusy=false}}
 $('#refresh').onclick=refresh;
 // Independent live UTC/Zulu clock, 24-hour format with seconds. No network request required.
 function updateZuluClock(){

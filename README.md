@@ -1,3 +1,21 @@
+# Weather Command Dashboard v2.9 — Route Winds Aloft & Wind-Corrected ETA
+
+Based on v2.8. Install all six files through GitHub Desktop and push to Render.
+
+## New flight-planning features
+
+- Route planner now asks for **true airspeed (TAS)**, cruise altitude MSL, an official three-letter **FB winds-aloft forecast station** and 6-, 12- or 24-hour forecast period.
+- Uses the existing NOAA Aviation Weather Center / NWS fallback `/api/winds-aloft` data; no new API key is required.
+- Wind speed/direction at cruise altitude are interpolated **as vector components** between published forecast levels, when available.
+- Every direct leg gets a true course, wind-correction angle and wind-adjusted groundspeed; ETA and fuel use the sum of estimated leg durations.
+- Forecast station is manually selectable: choose a forecast station representative of the route (e.g. OMA or OFK), not automatically assumed to be the departure airport. A single station is an approximation, especially on longer routes.
+- If the upstream winds table is missing or the station has no forecast, the estimate is explicitly labeled **STILL-AIR ONLY**; no wind estimate is fabricated. A crosswind too strong to hold a desired track is flagged.
+- The route-wind forecast is refreshed with the dashboard auto-refresh and with a dedicated button; upstream response caching remains in place.
+
+## Limitations and flight safety
+
+Wind-corrected ETA is an **estimate**, not a dispatch-approved navigational flight plan. Current implementation assumes cruise for the whole route and uses a **single selected FB station**. It does not include climb/descent, time/fuel for taxi, winds varying along the route, changing winds over time, magnetic variation, altitude-specific aircraft performance, terrain, controlled airspace, or arrival procedures. Use current official forecasts and the aircraft POH; allow appropriate fuel reserves. The listed FB forecasts are not current observed winds. No FAA NMS NOTAM connection settings were changed.
+
 # Weather Command Dashboard v2.5 — Mobile + Airport Briefing + Wall Display
 
 Install the six files via GitHub Desktop; commit and push, then allow Render to deploy. Preserve `NMS_API_CLIENT_ID`, `NMS_API_CLIENT_SECRET`, `NMS_API_ENV` settings.

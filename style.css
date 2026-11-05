@@ -578,3 +578,12 @@ body:not(.free-layout-active) .bottom-grid{display:grid!important}
   #modal-content .modal-map,#modal-content .modal-route-map { height: min(70dvh, 650px); min-height: 260px; }
   #modal-content:has(> .modal-map),#modal-content:has(> .modal-route-map) { padding: 5px; }
 }
+
+/* v2.9: flight plan winds-aloft calculations */
+.route-wind-inputs{margin-top:8px}
+.route-wind-inputs label{min-width:0}
+.route-wind-button{min-height:34px;width:100%;margin-top:1px}
+.route-wind-summary{font-size:11px;line-height:1.55;color:#ffc27b;background:#2b1b13;border:1px solid #805235;border-radius:7px;padding:10px;margin-top:10px;overflow-wrap:anywhere}
+.route-wind-summary.has-winds{background:#0b2724;border-color:#247c66;color:#72efb8}
+.route-leg-breakdown{display:grid;gap:4px;margin-top:7px;max-height:152px;overflow:auto}
+.route-leg-line{padding:6px 8px;border:1px solid #284456;border-radius:5px;color:#b3dfff;background:#101f2d;font-size:10px;line-height:1.5}
