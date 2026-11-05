@@ -102,6 +102,13 @@ function parseWinds(raw,station){
   return {station,levels,rows,available:rows.length>0};
 }
 
+
+// Community airport communications/runway data. Cache whole source datasets for a day;
+// never present them as current FAA Chart Supplement or verified FBO/fuel data.
+const airportCsvCache=new Map();
+function parseCsv(data){const rows=[];let row=[],field='',quoted=false;for(let i=0;i<data.length;i++){const c=data[i];if(c==='"'){if(quoted&&data[i+1]==='"'){field+='"';i++}else quoted=!quoted}else if(c===','&&!quoted){row.push(field);field=''}else if((c==='\n'||c==='\r')&&!quoted){if(c==='\r'&&data[i+1]==='\n')i++;row.push(field);if(row.some(Boolean))rows.push(row);row=[];field=''}else field+=c;}if(field||row.length){row.push(field);rows.push(row)}const head=rows.shift()||[];return rows.map(r=>Object.fromEntries(head.map((k,i)=>[k,r[i]||''])))}
+async function communityCsv(name){const c=airportCsvCache.get(name);if(c&&Date.now()-c.at<86400000)return c.rows;const url='https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/'+name+'.csv';const response=await fetch(url,{signal:AbortSignal.timeout(12000),headers:{'User-Agent':'WeatherCommandDashboard/2.5 (airport-info; contact site administrator)'}});if(!response.ok)throw Error('Community airport data HTTP '+response.status);const raw=await response.text();if(raw.length>18000000)throw Error('Airport data file too large');const rows=parseCsv(raw);airportCsvCache.set(name,{at:Date.now(),rows});return rows;}
+
 const apis={
   points:()=>['https://api.weather.gov/points/41.2565,-95.9345',3600000],
   alerts:()=>['https://api.weather.gov/alerts/active?area=NE',60000],
@@ -288,6 +295,28 @@ const server=http.createServer(async(req,res)=>{
       const header=lines.filter(x=>/DATA BASED|VALID|FOR USE|TEMPS NEG/i.test(x)).map(x=>x.trim());
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=300'});
       res.end(JSON.stringify({...parsed,fcst,header,source:report.source+' · official FB winds/temperatures',retrievedAt:new Date().toISOString()}));return;
+    }
+
+    if(u.pathname==='/api/airport-info'){
+      const id=(u.searchParams.get('id')||'').trim().toUpperCase();
+      if(!/^[A-Z0-9]{3,4}$/.test(id)){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Invalid airport identifier'}));return;}
+      const icao=id.length===3?'K'+id:id;
+      let airport=null,frequencies=[],runways=[],sourceError='';
+      const results=await Promise.allSettled([
+        upstream('https://aviationweather.gov/api/data/airport?ids='+encodeURIComponent(icao)+'&format=json',86400000),
+        communityCsv('airports'),communityCsv('airport-frequencies'),communityCsv('runways')
+      ]);
+      if(results[0].status==='fulfilled'&&Array.isArray(results[0].value))airport=results[0].value[0]||null;
+      if(results.slice(1).every(x=>x.status==='fulfilled')){
+        const list=results[1].value;
+        const a=list.find(x=>[x.ident,x.gps_code,x.icao_code,x.local_code].some(code=>code&&[icao,id,icao.slice(1)].includes(code.toUpperCase())));
+        if(a){
+          if(!airport)airport={name:a.name,city:a.municipality,state:a.iso_region,type:a.type,elev:a.elevation_ft};
+          frequencies=results[2].value.filter(f=>f.airport_ref===a.id).map(f=>({type:f.type,mhz:f.frequency_mhz,description:f.description}));
+          runways=results[3].value.filter(r=>r.airport_ref===a.id).map(r=>({le_ident:r.le_ident,he_ident:r.he_ident,length_ft:r.length_ft,width_ft:r.width_ft,surface:r.surface}));
+        }
+      }else sourceError='Community runway/frequency data temporarily unavailable';
+      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=3600'});res.end(JSON.stringify({id:icao,airport,frequencies,runways,sourceError,checkedAt:new Date().toISOString()}));return;
     }
     if(u.pathname==='/api/airport-route'){
       const raw=(u.searchParams.get('ids')||'').toUpperCase().split(/[\s,;>-]+/).filter(Boolean);
