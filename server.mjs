@@ -322,26 +322,46 @@ const server=http.createServer(async(req,res)=>{
     if(u.pathname==='/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({status:'ok'}));return;}
     if(u.pathname==='/api/aviation-hazards'){
       const station=(u.searchParams.get('station')||'KOMA').trim().toUpperCase();
-      if(!/^[A-Z0-9]{3,4}$/.test(station)){
-        res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Invalid airport identifier'}));return;
+      const lat=Number(u.searchParams.get('lat')),lon=Number(u.searchParams.get('lon'));
+      if(!/^[A-Z0-9]{3,4}$/.test(station)||!Number.isFinite(lat)||!Number.isFinite(lon)||lat< -90||lat>90||lon< -180||lon>180){
+        res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Valid station and coordinates required'}));return;
       }
-      const icao=station.length===3&&/^[A-Z]{3}$/.test(station)?'K'+station:station;
-      const sources={
-        pireps:'https://aviationweather.gov/api/data/pirep?ids='+encodeURIComponent(icao)+'&distance=200&age=3&format=json',
+      // New AWC PIREP API supports bbox instead of the older ids+distance query
+      // combination. A bounding box is a search envelope, NOT a circular radius.
+      const radialDeg=200/60,lonDeg=radialDeg/Math.max(0.25,Math.cos(lat*Math.PI/180));
+      const bbox=[
+        Math.max(-90,lat-radialDeg).toFixed(3),Math.max(-180,lon-lonDeg).toFixed(3),
+        Math.min(90,lat+radialDeg).toFixed(3),Math.min(180,lon+lonDeg).toFixed(3)
+      ].join(',');
+      const urls={
+        pireps:'https://aviationweather.gov/api/data/pirep?bbox='+encodeURIComponent(bbox)+'&age=3&format=json',
         sigmets:'https://aviationweather.gov/api/data/airsigmet?format=json',
         gairmets:'https://aviationweather.gov/api/data/gairmet?format=json'
       };
-      const keys=Object.keys(sources);
-      const calls=await Promise.allSettled(keys.map(key=>upstream(sources[key],180000)));
-      const feeds=Object.fromEntries(keys.map((key,index)=>{
-        const call=calls[index];
-        if(call.status==='rejected')return [key,{ok:false,error:String(call.reason?.message||'AWC feed unavailable'),items:[]}];
-        if(call.value!==null&&!Array.isArray(call.value))
-          return [key,{ok:false,error:'Unexpected AWC response format',items:[]}];
-        return [key,{ok:true,items:(call.value||[]).slice(0,400)}];
-      }));
-      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=120'});
-      res.end(JSON.stringify({station:icao,scope:{pireps:'Reports within 200 NM, past 3 hours',sigmets:'US/wide-area bulletin feed — not airport-filtered',gairmets:'CONUS graphical advisories — not airport-filtered'},feeds,checkedAt:new Date().toISOString()}));return;
+      async function getFeed(key){
+        const url=urls[key];
+        try{
+          // Reuse the server-side request cache and existing AWC User-Agent.
+          const response=await upstream(url,180000);
+          if(response===null)return {ok:true,items:[],empty:true,source:'AWC',status:204};
+          const list=Array.isArray(response)?response:
+            (response?.type==='FeatureCollection'&&Array.isArray(response.features)?response.features.map(x=>({...x.properties,geometry:x.geometry})):null);
+          if(!list)throw Error('Unexpected NOAA JSON response shape');
+          return {ok:true,items:list.slice(0,400),empty:list.length===0,source:'AWC',status:200};
+        }catch(err){
+          return {ok:false,items:[],empty:false,error:String(err?.message||err),source:'AWC'};
+        }
+      }
+      const keys=['pireps','sigmets','gairmets'];
+      const data=await Promise.all(keys.map(key=>getFeed(key)));
+      const feeds=Object.fromEntries(keys.map((key,i)=>[key,data[i]]));
+      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
+      res.end(JSON.stringify({
+        station,feeds,checkedAt:new Date().toISOString(),
+        scope:{pireps:'Bounding-box query approximately 200 NM around '+station+'; last 3 hours',
+        sigmets:'National and worldwide feed — NOT filtered to airport',
+        gairmets:'CONUS G-AIRMET bulletins — NOT filtered to airport'}
+      }));return;
     }
     if(u.pathname==='/api/winds-aloft'){
       const fcst=u.searchParams.get('fcst')||'06';
