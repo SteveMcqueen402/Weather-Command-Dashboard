@@ -1301,3 +1301,27 @@ body.dashboard-fit.card-focus-open .focus-panel-active .route-editor.is-collapse
  body.dashboard-fit main{height:auto!important;min-height:100dvh!important;overflow:visible!important}
  body.dashboard-fit .focus-panel-active{width:95vw!important}
 }
+
+/* Expanded touch cards override compact summary limits, including ID rules. */
+body.dashboard-fit.card-focus-open #airport-section.focus-panel-active .aviation-body pre,
+body.dashboard-fit.card-focus-open #airport-section.focus-panel-active .aviation-body{
+ max-height:none!important;overflow:auto!important;
+}
+body.dashboard-fit.card-focus-open #wind-section.focus-panel-active .wind-rows,
+body.dashboard-fit.card-focus-open #notam-section.focus-panel-active .notam-list,
+body.dashboard-fit.card-focus-open #route-section.focus-panel-active .route-leg-breakdown,
+body.dashboard-fit.card-focus-open #forecast-section.focus-panel-active .forecast-days{
+ max-height:none!important;overflow:auto!important;
+}
+body.dashboard-fit.card-focus-open #charts-section.focus-panel-active .map-area{
+ min-height:300px!important;height:auto!important;flex:1 1 auto!important;
+}
+body.dashboard-fit.card-focus-open #route-section.focus-panel-active .route-editor{
+ display:grid!important;
+}
+body.dashboard-fit.card-focus-open #route-section.focus-panel-active .route-editor.is-collapsed{
+ display:none!important;
+}
+body.dashboard-fit.card-focus-open #route-section.focus-panel-active .route-editor>button[type=submit]{
+ grid-column:1/-1!important;min-height:44px!important;font-size:16px!important;
+}
