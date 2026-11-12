@@ -500,6 +500,14 @@ $('#fit-screen').onclick=toggleFit;
 window.addEventListener('resize',()=>{if(fitActive)requestAnimationFrame(fitDashboard)});
 
 function repairMobileMap(){if(!current.map)return;const visible=$('#main-map')?.getBoundingClientRect();if(visible&&visible.width>20&&visible.height>20){current.map.invalidateSize({pan:false});if(!current.mapLayer&&['radar','route'].includes($('.tab.active')?.dataset.map))current.mapLayer=addRadarLayer(current.map)}}
+// Leaflet must be told when grid/flex changes map dimensions without window resize.
+if(typeof ResizeObserver!=='undefined'){
+ const mapArea=$('#charts-section .map-area');
+ if(mapArea){
+  const sizeObserver=new ResizeObserver(()=>{if(current.map&&mapArea.getBoundingClientRect().width>30)requestAnimationFrame(()=>current.map?.invalidateSize({pan:false}))});
+  sizeObserver.observe(mapArea);
+ }
+}
 window.addEventListener('resize',()=>setTimeout(repairMobileMap,120));
 window.addEventListener('orientationchange',()=>setTimeout(repairMobileMap,500));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){setTimeout(repairMobileMap,120);if(autoRefresh.checked)refresh()}});
@@ -635,6 +643,12 @@ $('#notam-expand').addEventListener('click',()=>{
 // Persist per browser; includes all four summary cards and every detailed panel.
 (function setupFreeLayout(){
  const board=$('#custom-board'),toggle=$('#layout-toggle'),reset=$('#layout-reset');
+ const shortcuts=$('.quicklinks'),rightStack=$('.rightstack'),wall=$('.wall');
+ const moveShortcuts=(custom)=>{
+  if(!shortcuts||!rightStack||!wall)return;
+  if(custom)wall.after(shortcuts);
+  else rightStack.append(shortcuts);
+ };
  if(!board||!toggle||!reset)return;
  const ids=['temp','dewpoint','wind','flightcat','notam-home-id','airport-section','wind-section','charts-section','route-section','forecast-section','notam-section'];
  const tiles=ids.slice(0,5).map(id=>document.getElementById(id)?.closest('.stat')).filter(Boolean);
@@ -672,6 +686,7 @@ $('#notam-expand').addEventListener('click',()=>{
  function enter(saved){
    if(active)return;board.classList.remove('hidden');const measurements=measuredLayout();
    document.body.classList.add('free-layout-active');
+   moveShortcuts(true);
    nodes.forEach(n=>board.appendChild(n));active=true;
    const data=new Map((saved?.cards||[]).map(x=>[x.id,x]));const scale=saved?.boardWidth>0?board.clientWidth/saved.boardWidth:1;
    let safetyY=0;
@@ -720,6 +735,7 @@ $('#notam-expand').addEventListener('click',()=>{
    // original order is preserved by DOM for the four tiles, even after moving them into the custom canvas
    const byParent=[...new Set(nodes.map(n=>originals.get(n).parent))];for(const parent of byParent){const part=nodes.filter(n=>originals.get(n).parent===parent);part.forEach((n)=>{const after=originals.get(n).next;if(after?.parentNode===parent)parent.insertBefore(n,after)})}
    board.classList.add('hidden');board.style.minHeight='';document.body.classList.remove('free-layout-active');active=false;
+   moveShortcuts(false);
    try{localStorage.removeItem(key);localStorage.removeItem('wc-layout-v13');localStorage.removeItem('weather-command-layout-v12')}catch{}
    text('#layout-state','Default layout');refreshMaps();
  });
