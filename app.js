@@ -795,7 +795,8 @@ $('#notam-expand').addEventListener('click',()=>{
     n.querySelector(':scope > .tile-controls')?.remove();
     n.classList.remove('card-collapsed');
     n.style.removeProperty('--custom-span');delete n.dataset.span;
-    parent.append(n);
+    const reference=parent.children[originals.get(n).index]||null;
+    parent.insertBefore(n,reference);
    }
   }
   board.classList.add('hidden');
