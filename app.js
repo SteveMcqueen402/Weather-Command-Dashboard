@@ -553,7 +553,10 @@ function toggleFit(){
  const main=$('main');
  document.body.classList.toggle('dashboard-fit',fitActive);
  text('#fit-screen',fitActive?'⤢ Exit Fit':'⤢ Fit Screen');
- if(!fitActive){main.style.removeProperty('width');main.style.removeProperty('max-width');main.style.removeProperty('height');main.style.removeProperty('transform');main.style.removeProperty('transform-origin');delete main.dataset.fitScale;repairMobileMap();return}
+ if(!fitActive){
+  document.body.classList.remove('route-edit-open');
+  main.style.removeProperty('width');main.style.removeProperty('max-width');main.style.removeProperty('height');main.style.removeProperty('transform');main.style.removeProperty('transform-origin');delete main.dataset.fitScale;repairMobileMap();return
+ }
  fitDashboard();
 }
 $('#fit-screen').onclick=toggleFit;
@@ -603,6 +606,17 @@ if(routeToggle&&routeEditor){
    routeEditor.classList.toggle('is-collapsed',!opening);
    routeToggle.setAttribute('aria-expanded',String(opening));
    routeToggle.querySelector('span').textContent=opening?'▴':'▾';
+   // Fit Screen is a glanceable wall display. Editing is a dedicated overlay,
+   // not a clipped form or scrolling content squeezed inside the route card.
+   document.body.classList.toggle('route-edit-open',opening&&fitActive);
+ });
+ document.addEventListener('keydown',e=>{
+   if(e.key==='Escape'&&document.body.classList.contains('route-edit-open')){
+     document.body.classList.remove('route-edit-open');
+     routeEditor.classList.add('is-collapsed');
+     routeToggle.setAttribute('aria-expanded','false');
+     routeToggle.querySelector('span').textContent='▾';
+   }
  });
  routeEditor.addEventListener('submit',()=>{
    const from=document.getElementById('route-from').value.trim().toUpperCase();
