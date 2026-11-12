@@ -701,115 +701,51 @@ $('#notam-expand').addEventListener('click',()=>{
 
 // Freely positioned, resizable card canvas. Handles use Pointer Events for mouse, touch and pen.
 // Persist per browser; includes all four summary cards and every detailed panel.
-(function setupFreeLayout(){
- const board=$('#custom-board'),toggle=$('#layout-toggle'),reset=$('#layout-reset');
- if(!board||!toggle||!reset)return;
- const ids=['temp','dewpoint','wind','flightcat','notam-home-id','airport-section','wind-section','charts-section',
-  'route-section','forecast-section','notam-section','pirep-panel','sigmet-panel','convective-panel'];
- const tiles=ids.slice(0,5).map(id=>document.getElementById(id)?.closest('.stat')).filter(Boolean);
- const nodes=[...tiles,...ids.slice(5).map(id=>document.getElementById(id)).filter(Boolean)];
- const originals=new Map(nodes.map(n=>[n,{parent:n.parentElement,index:[...n.parentElement.children].indexOf(n)}]));
- tiles.forEach((n,i)=>{n.id='tile-'+['forecast','dewpoint','wind','category','notam'][i]});
- const key='weather-command-tile-layout-v18';
- const defaults={};
- nodes.forEach(n=>defaults[n.id]=n.classList.contains('stat')?2:n.id==='charts-section'?6:3);
- let active=false,editing=false;
- const cols=()=>window.innerWidth<680?1:window.innerWidth<1050?6:12;
- const savedSpan=n=>Math.max(1,Math.min(cols(),Number(n.dataset.span)||defaults[n.id]||3));
- const mapRefresh=()=>setTimeout(()=>{for(const map of mapsRegistry){try{map.invalidateSize({pan:false})}catch{}}},90);
- function persist(){
-  if(!active)return;
-  const cards=[...board.children].filter(n=>nodes.includes(n)).map(n=>({id:n.id,span:Number(n.dataset.span)||defaults[n.id],collapsed:n.classList.contains('card-collapsed')}));
-  try{localStorage.setItem(key,JSON.stringify({version:18,cards}))}catch{}
+// Layout presets use the original dashboard grid. No cards are moved out of
+// their panels, and no absolute positioning is involved.
+(function setupLayoutPresets(){
+ const arrange=$('#layout-toggle'),reset=$('#layout-reset');
+ if(!arrange||!reset)return;
+ const key='wc-layout-preset-v1';
+ const presets={
+  balanced:{title:'Balanced',note:'Readable map, airport data and advisories side by side'},
+  reports:{title:'More weather reports',note:'Wider aviation and advisory columns'},
+  map:{title:'Map priority',note:'A somewhat larger radar map without hiding reports'}
+ };
+ function activate(name){
+  const choice=presets[name]?name:'balanced';
+  document.body.classList.remove('layout-preset-balanced','layout-preset-reports','layout-preset-map',
+    'free-layout-active','free-layout-editing');
+  document.body.classList.add('layout-preset-'+choice);
+  $('#custom-board')?.classList.add('hidden');
+  arrange.textContent='Arrange Panels';
+  arrange.setAttribute('aria-pressed','false');
+  text('#layout-state',presets[choice].title+' layout');
+  try{localStorage.setItem(key,choice);localStorage.removeItem('weather-command-free-layout-v17');
+    localStorage.removeItem('weather-command-tile-layout-v18')}catch{}
+  requestAnimationFrame(()=>setTimeout(()=>{for(const map of mapsRegistry){
+    try{map.invalidateSize({pan:false})}catch{}
+  }},100));
+  if(fitActive)fitDashboard();
  }
- function applyCard(n,entry){
-  n.dataset.span=String(Math.max(1,Math.min(12,Number(entry?.span)||defaults[n.id])));
-  n.style.setProperty('--custom-span',String(savedSpan(n)));
-  n.classList.toggle('card-collapsed',Boolean(entry?.collapsed));
-  const collapse=n.querySelector('.tile-collapse');if(collapse)collapse.textContent=n.classList.contains('card-collapsed')?'+ Expand':'− Collapse';
- }
- function rescale(){
-  if(!active)return;
-  nodes.forEach(n=>n.style.setProperty('--custom-span',String(savedSpan(n))));
-  mapRefresh();
- }
- function move(n,delta){
-  const items=[...board.children].filter(x=>nodes.includes(x)),index=items.indexOf(n);
-  if(index<0)return;
-  const next=index+delta;if(next<0||next>=items.length)return;
-  if(delta>0)board.insertBefore(items[next],n);
-  else board.insertBefore(n,items[next]);
-  persist();mapRefresh();
- }
- function addControls(n){
-  if(n.querySelector(':scope > .tile-controls'))return;
-  const toolbar=document.createElement('div');toolbar.className='tile-controls';
-  const addButton=(label,title,handler)=>{
-   const button=document.createElement('button');button.type='button';button.textContent=label;button.title=title;
-   button.addEventListener('click',e=>{e.stopPropagation();handler()});toolbar.append(button);return button;
-  };
-  addButton('←','Move card earlier',()=>move(n,-1));
-  addButton('→','Move card later',()=>move(n,1));
-  addButton('− Size','Make card narrower',()=>{n.dataset.span=String(Math.max(1,(Number(n.dataset.span)||defaults[n.id])-1));rescale();persist()});
-  addButton('+ Size','Make card wider',()=>{n.dataset.span=String(Math.min(12,(Number(n.dataset.span)||defaults[n.id])+1));rescale();persist()});
-  const collapse=addButton('− Collapse','Collapse or expand card',()=>{
-   n.classList.toggle('card-collapsed');
-   collapse.textContent=n.classList.contains('card-collapsed')?'+ Expand':'− Collapse';
-   persist();mapRefresh();
-  });
-  collapse.className='tile-collapse';
-  n.prepend(toolbar);
- }
- function enter(saved){
-  if(active)return;
-  if(fitActive)toggleFit(); // Never edit a scaled coordinate system.
-  active=true;
-  board.classList.remove('hidden');
-  document.body.classList.add('free-layout-active');
-  const cards=new Map((saved?.cards||[]).map(c=>[c.id,c]));
-  const ordered=saved?.version===18?[...saved.cards].map(c=>nodes.find(n=>n.id===c.id)).filter(Boolean):nodes;
-  for(const n of [...ordered,...nodes.filter(n=>!ordered.includes(n))]){
-   board.append(n);addControls(n);applyCard(n,cards.get(n.id));
+ arrange.addEventListener('click',()=>{
+  const host=document.createElement('div');host.className='layout-choice-grid';
+  const explanation=document.createElement('p');
+  explanation.textContent='Choose a layout. All cards stay aligned, readable and free of overlaps.';
+  host.append(explanation);
+  for(const [name,info] of Object.entries(presets)){
+   const button=document.createElement('button');button.type='button';button.className='layout-choice';
+   const title=document.createElement('strong');title.textContent=info.title;
+   const description=document.createElement('span');description.textContent=info.note;
+   button.append(title,description);
+   button.onclick=()=>{activate(name);closeModal()};
+   host.append(button);
   }
-  rescale();
- }
- function setEditing(value){
-  editing=value;document.body.classList.toggle('free-layout-editing',value);
-  toggle.textContent=value?'Done Arranging':'Arrange Panels';
-  toggle.setAttribute('aria-pressed',String(value));
-  text('#layout-state',value?'Use arrows to reorder; −/+ Size changes card width. Cards never overlap.':'Custom arrangement saved');
-  persist();mapRefresh();
- }
- toggle.addEventListener('click',()=>{
-  if(!active)enter(null);
-  setEditing(!editing);
+  showModal('Dashboard layout',host);
  });
- reset.addEventListener('click',()=>{
-  if(!window.confirm('Restore the compact default dashboard layout on this device?'))return;
-  setEditing(false);
-  const originalParents=[...new Set([...originals.values()].map(o=>o.parent))];
-  for(const parent of originalParents){
-   const members=nodes.filter(n=>originals.get(n).parent===parent)
-    .sort((a,b)=>originals.get(a).index-originals.get(b).index);
-   for(const n of members){
-    n.querySelector(':scope > .tile-controls')?.remove();
-    n.classList.remove('card-collapsed');
-    n.style.removeProperty('--custom-span');delete n.dataset.span;
-    const reference=parent.children[originals.get(n).index]||null;
-    parent.insertBefore(n,reference);
-   }
-  }
-  board.classList.add('hidden');
-  document.body.classList.remove('free-layout-active','free-layout-editing');
-  active=false;
-  try{localStorage.removeItem(key);localStorage.removeItem('weather-command-free-layout-v17')}catch{}
-  text('#layout-state','Default layout');
-  mapRefresh();
- });
- window.addEventListener('resize',rescale);
- try{
-  const saved=JSON.parse(localStorage.getItem(key)||'null');
-  if(saved?.version===18&&Array.isArray(saved.cards)){enter(saved);setEditing(false)}
- }catch{}
+ reset.addEventListener('click',()=>activate('balanced'));
+ let saved='balanced';
+ try{saved=localStorage.getItem(key)||'balanced'}catch{}
+ activate(saved);
 })();
 $('#radar-quality')?.addEventListener('change',()=>{if(current.map&&$('.tab.active')?.dataset.map==='radar')transitionRadar(current.map,'mapLayer');});
