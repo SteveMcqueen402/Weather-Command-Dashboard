@@ -1704,3 +1704,51 @@ body.dashboard-fit:not(.card-focus-open) .stats .stathead{
   grid-template-columns:minmax(0,1fr) 112px!important;
  }
 }
+
+/* Keep first five-day forecast period visible in Fit Screen. All five readings
+   should fit without relying on scrolling or the expanded card. */
+body.dashboard-fit:not(.card-focus-open) #forecast-section{
+ display:flex!important;flex-direction:column!important;min-height:0!important;
+ padding:7px 9px!important;
+}
+body.dashboard-fit:not(.card-focus-open) #forecast-section .panelhead{
+ flex:0 0 auto!important;margin-bottom:2px!important;min-height:25px!important;
+}
+body.dashboard-fit:not(.card-focus-open) #forecast-section #forecast-days{
+ flex:1 1 0!important;display:grid!important;
+ grid-template-columns:repeat(5,minmax(0,1fr))!important;
+ grid-template-rows:minmax(0,1fr)!important;
+ min-height:0!important;height:auto!important;
+ gap:3px!important;margin:0!important;overflow:hidden!important;
+}
+body.dashboard-fit:not(.card-focus-open) #forecast-section #forecast-days>.day{
+ display:flex!important;flex-direction:column!important;justify-content:center!important;
+ align-items:center!important;min-height:0!important;height:100%!important;
+ overflow:hidden!important;padding:2px 2px!important;gap:0!important;
+}
+body.dashboard-fit:not(.card-focus-open) #forecast-section .day strong{
+ display:block!important;white-space:normal!important;
+ font-size:clamp(10px,.67vw,12px)!important;line-height:1.07!important;
+ max-height:2.2em!important;overflow:hidden!important;
+}
+body.dashboard-fit:not(.card-focus-open) #forecast-section .day .symbol{
+ font-size:clamp(16px,1.15vw,22px)!important;line-height:1!important;
+ margin:1px 0!important;flex:0 0 auto!important;
+}
+body.dashboard-fit:not(.card-focus-open) #forecast-section .day .temperature{
+ font-size:clamp(18px,1.35vw,25px)!important;line-height:1!important;
+ margin:1px 0!important;flex:0 0 auto!important;
+}
+body.dashboard-fit:not(.card-focus-open) #forecast-section .day small{
+ display:block!important;font-size:clamp(10px,.68vw,12px)!important;
+ line-height:1.05!important;max-height:2.15em!important;overflow:hidden!important;
+}
+body.dashboard-fit:not(.card-focus-open) #forecast-section .day small:last-child{
+ display:none!important;
+}
+/* Report previews must show useful conditions, not only advisory codes. */
+body.dashboard-fit:not(.card-focus-open) .rightstack .hazard-panel .hazard-glance{
+ white-space:normal!important;display:-webkit-box!important;
+ -webkit-line-clamp:2!important;-webkit-box-orient:vertical!important;
+ line-height:1.2!important;
+}

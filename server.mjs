@@ -40,7 +40,8 @@ async function readWindTable(fcst){
   // FD1/FD2/FD3 NWS text products as an independent fallback.
   const product={'06':'FD1','12':'FD2','24':'FD3'}[fcst];
   const sources=[
-    {name:'NOAA Aviation Weather Center',url:`https://aviationweather.gov/api/data/windtemp?region=us&level=low&fcst=${fcst}`,html:false},
+    {name:'NOAA Aviation Weather Center / Central US',url:`https://aviationweather.gov/api/data/windtemp?region=chi&level=low&fcst=${fcst}`,html:false},
+    {name:'NOAA Aviation Weather Center / US',url:`https://aviationweather.gov/api/data/windtemp?region=us&level=low&fcst=${fcst}`,html:false},
     {name:'NWS FD forecast text',url:`https://forecast.weather.gov/product.php?site=NWS&issuedby=US1&product=${product}&format=TXT`,html:true}
   ];
   const failures=[];
@@ -328,17 +329,17 @@ const server=http.createServer(async(req,res)=>{
       }
       // New AWC PIREP API supports bbox instead of the older ids+distance query
       // combination. A bounding box is a search envelope, NOT a circular radius.
-      const radialDeg=200/60,lonDeg=radialDeg/Math.max(0.25,Math.cos(lat*Math.PI/180));
+      const radialDeg=0.75,lonDeg=radialDeg/Math.max(0.25,Math.cos(lat*Math.PI/180));
       const bbox=[
         Math.max(-90,lat-radialDeg).toFixed(3),Math.max(-180,lon-lonDeg).toFixed(3),
         Math.min(90,lat+radialDeg).toFixed(3),Math.min(180,lon+lonDeg).toFixed(3)
       ].join(',');
       const urls={
-        pireps:'https://aviationweather.gov/api/data/pirep?id='+encodeURIComponent(station)+'&distance=100&age=3&format=json',
+        pireps:'https://aviationweather.gov/api/data/pirep?bbox='+encodeURIComponent(bbox)+'&age=3&format=json',
         sigmets:'https://aviationweather.gov/api/data/airsigmet?format=json',
         gairmets:'https://aviationweather.gov/api/data/gairmet?format=json'
       };
-      // PIREP radius queries are much lighter than a large regional bbox.
+      // Query a bounded geographic area around home; never use unsupported distance params.
       // Keep a bounded successful snapshot for temporary upstream timeouts.
       const pirepKey='awc-pireps-'+station;
       const previousPireps=cache.get(pirepKey);
@@ -348,7 +349,7 @@ const server=http.createServer(async(req,res)=>{
           // Reuse the server-side request cache and existing AWC User-Agent.
           let response;
           if(key==='pireps'){
-            const controller=AbortSignal.timeout(9000);
+            const controller=AbortSignal.timeout(14000);
             const answer=await fetch(url,{headers:{'User-Agent':'WeatherCommandDashboard/3.2 (aviation weather dashboard)','Accept':'application/json'},signal:controller});
             if(answer.status===204)response=null;
             else {if(!answer.ok)throw Error('NOAA PIREP HTTP '+answer.status);response=await answer.json();}
@@ -376,7 +377,7 @@ const server=http.createServer(async(req,res)=>{
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
       res.end(JSON.stringify({
         station,feeds,checkedAt:new Date().toISOString(),
-        scope:{pireps:'Reports within 100 statute miles of '+station+'; last 3 hours (cached data explicitly labeled)',
+        scope:{pireps:'Recent pilot reports in a geographic box centered on '+station+'; last 3 hours (previous reports labeled)',
         sigmets:'National and worldwide feed — NOT filtered to airport',
         gairmets:'CONUS G-AIRMET bulletins — NOT filtered to airport'}
       }));return;

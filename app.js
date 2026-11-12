@@ -467,7 +467,7 @@ function renderHazard(kind,message){
  const status=$('#'+kind+'-status');if(!holder||!status)return;
  holder.replaceChildren();
  const scope=kind==='pirep'?hazardState.scope.pireps:hazardState.scope.sigmets;
- status.textContent=message||((kind==='pirep'?'100 mi from home · past 3 hours':'Wide-area bulletins · check coverage')+' · '+items.length+' reports');
+ status.textContent=message||((kind==='pirep'?'Near home · past 3 hours':'Wide-area bulletins · check coverage')+' · '+items.length+' reports');
  if(!items.length){const empty=document.createElement('span');empty.className='hazard-empty';empty.textContent=message?'Data unavailable or not confirmed':'No reports returned for this feed';holder.append(empty);return;}
  items.slice(0,3).forEach(o=>{
   const item=hazardItem(o,kind);
@@ -479,7 +479,10 @@ function renderHazard(kind,message){
   const raw=rawHazard(o).replace(/\s+/g,' ').trim();
   const area=firstValue(o,['area','regions','region','location','locationRef','icaoId','station','id']);
   const detail=raw&&raw.toUpperCase()!==label.toUpperCase()?raw:(area?String(area):'');
-  const complete=[label,detail].filter(Boolean).join(' · ');
+  const areaText=area?String(area):'';
+  const signal=kind==='pirep'?[o.fltLvl&&'FL '+o.fltLvl,o.turbInten&&'Turb '+o.turbInten,o.iceInten&&'Ice '+o.iceInten].filter(Boolean).join(' · '):[o.validTimeFrom&&'Valid '+dateTime(o.validTimeFrom),o.validTimeTo&&'to '+dateTime(o.validTimeTo)].filter(Boolean).join(' ');
+  const reportSummary=[signal,areaText,detail].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(' · ');
+  const complete=[label,reportSummary].filter(Boolean).join(' · ');
   glance.textContent=complete;
   glance.title=complete;
   item.prepend(glance);
