@@ -452,7 +452,7 @@ async function loadHazards(){
   for(const kind of ['pirep','sigmet','convective']){hazardState[kind]=[];hazardState.errors[kind]=err.message;renderHazard(kind,'Unable to check feed: '+err.message)}
  }
 }
-$('[data-hazard-expand]').forEach(button=>button.addEventListener('click',()=>{
+$$('[data-hazard-expand]').forEach(button=>button.addEventListener('click',()=>{
  const kind=button.dataset.hazardExpand;
  const title={pirep:'Recent pilot reports',sigmet:'SIGMETs and G-AIRMETs (US-wide)',convective:'Convective SIGMETs (US-wide)'}[kind]||'Aviation hazards';
  const box=document.createElement('div');box.className='hazard-modal';
