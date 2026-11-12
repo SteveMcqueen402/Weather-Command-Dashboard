@@ -534,35 +534,19 @@ document.addEventListener('fullscreenchange',()=>{refreshWallLabel();setTimeout(
 let fitActive=false;
 function fitDashboard(){
  if(!fitActive)return;
- const main=$('main'),header=$('.top');
+ const main=$('main');
  if(!main)return;
- // Reflow at a wider internal size as we scale down: the rendered dashboard
- // fills the available width AND height, instead of occupying only the left half.
- const viewWidth=Math.max(320,window.innerWidth-12);
- const headerHeight=header?.getBoundingClientRect().height||0;
- const viewHeight=Math.max(160,window.innerHeight-headerHeight-6);
- main.style.transform='none';
+ // FBO mode uses a real viewport-based grid; whole-page scaling makes text
+ // illegible on a wall monitor and creates distorted map touch coordinates.
+ main.style.removeProperty('width');
+ main.style.removeProperty('max-width');
  main.style.removeProperty('height');
- main.style.maxWidth='none';
- let scale=1;
- for(let pass=0;pass<5;pass++){
-  const internalWidth=Math.min(5000,viewWidth/scale);
-  main.style.width=internalWidth+'px';
-  const contentHeight=Math.max(1,main.scrollHeight,main.offsetHeight);
-  const next=Math.max(0.12,Math.min(1,viewHeight/contentHeight));
-  if(Math.abs(next-scale)<0.006){scale=next;break}
-  scale=next;
+ main.style.removeProperty('transform');
+ main.style.removeProperty('transform-origin');
+ delete main.dataset.fitScale;
+ for(const map of [current.map,current.routeWeatherMap,current.modalMap].filter(Boolean)){
+  setTimeout(()=>{try{map.invalidateSize({pan:false})}catch{}},120);
  }
- main.style.width=Math.min(5000,viewWidth/scale)+'px';
- const naturalHeight=Math.max(1,main.scrollHeight,main.offsetHeight);
- scale=Math.max(0.12,Math.min(1,viewHeight/naturalHeight));
- // Fit both dimensions after final layout; never allow content to clip offscreen.
- scale=Math.min(scale,viewWidth/main.offsetWidth);
- main.style.transform='scale('+scale+')';
- main.style.transformOrigin='top left';
- main.style.height=naturalHeight+'px';
- main.dataset.fitScale=scale.toFixed(3);
- [current.map,current.routeWeatherMap].filter(Boolean).forEach(m=>setTimeout(()=>m.invalidateSize({pan:false}),100));
 }
 function toggleFit(){
  fitActive=!fitActive;
