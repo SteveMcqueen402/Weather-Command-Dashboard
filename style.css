@@ -685,3 +685,73 @@ body.dashboard-fit .dashboard-arrange-strip{gap:5px}
 .leftstack>.notam-panel>.panel-link{font-size:10px;margin-top:3px}
 body.dashboard-fit .leftstack>.notam-panel{width:100%!important;height:max-content!important}
 @media(max-width:680px){.leftstack>.notam-panel{width:100%;max-width:100%}}
+
+/* v3.4 tightly tiled dashboard. The map occupies the same full vertical track
+   as both side stacks; shortcuts use the space below forecast instead of a footer row. */
+@media(min-width:1101px){
+ body:not(.free-layout-active) .wall,
+ body.dashboard-fit:not(.free-layout-active) .wall{
+   display:grid!important;
+   grid-template-columns:minmax(240px,1fr) minmax(440px,2.15fr) minmax(280px,1.15fr)!important;
+   align-items:stretch!important;
+   gap:10px!important;
+ }
+ body:not(.free-layout-active) .wall>.map-panel,
+ body.dashboard-fit:not(.free-layout-active) .wall>.map-panel{
+   display:flex!important;
+   flex-direction:column!important;
+   height:100%!important;
+   min-height:0!important;
+   align-self:stretch!important;
+ }
+ body:not(.free-layout-active) .wall>.map-panel .map-area,
+ body.dashboard-fit:not(.free-layout-active) .wall>.map-panel .map-area{
+   flex:1 1 auto!important;
+   height:auto!important;
+   min-height:340px!important;
+   max-height:none!important;
+ }
+ body:not(.free-layout-active) .wall>.rightstack,
+ body.dashboard-fit:not(.free-layout-active) .wall>.rightstack{
+   display:grid!important;
+   grid-template-columns:minmax(0,1fr)!important;
+   grid-template-rows:max-content max-content minmax(175px,1fr)!important;
+   align-content:stretch!important;
+   align-self:stretch!important;
+   min-height:0!important;
+   gap:10px!important;
+ }
+ body:not(.free-layout-active) .wall>.rightstack>.quicklinks,
+ body.dashboard-fit:not(.free-layout-active) .wall>.rightstack>.quicklinks{
+   display:grid!important;
+   grid-template-columns:repeat(3,minmax(0,1fr))!important;
+   grid-template-rows:repeat(2,minmax(0,1fr))!important;
+   gap:8px!important;
+   margin:0!important;
+   min-height:175px!important;
+   align-self:stretch!important;
+ }
+ body:not(.free-layout-active) .wall>.rightstack>.quicklinks button{
+   min-width:0;
+   min-height:0!important;
+   justify-content:center;
+   padding:8px 3px;
+   font-size:19px!important;
+ }
+ body:not(.free-layout-active) .wall>.rightstack>.quicklinks button span{
+   font-size:10px!important;
+   text-align:center;
+ }
+ body:not(.free-layout-active) .wall>.leftstack{
+   align-content:start!important;
+   align-self:start!important;
+ }
+}
+@media(min-width:681px) and (max-width:1100px){
+ .wall>.rightstack>.quicklinks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+ .wall>.rightstack>.quicklinks button{min-width:0}
+}
+@media(max-width:680px){
+ .wall>.rightstack>.quicklinks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:7px!important}
+ .wall>.rightstack>.quicklinks button{min-width:0;min-height:62px}
+}
