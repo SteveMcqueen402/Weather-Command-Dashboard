@@ -320,6 +320,29 @@ const server=http.createServer(async(req,res)=>{
       }
     }
     if(u.pathname==='/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({status:'ok'}));return;}
+    if(u.pathname==='/api/aviation-hazards'){
+      const station=(u.searchParams.get('station')||'KOMA').trim().toUpperCase();
+      if(!/^[A-Z0-9]{3,4}$/.test(station)){
+        res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Invalid airport identifier'}));return;
+      }
+      const icao=station.length===3&&/^[A-Z]{3}$/.test(station)?'K'+station:station;
+      const sources={
+        pireps:'https://aviationweather.gov/api/data/pirep?ids='+encodeURIComponent(icao)+'&distance=200&age=3&format=json',
+        sigmets:'https://aviationweather.gov/api/data/airsigmet?format=json',
+        gairmets:'https://aviationweather.gov/api/data/gairmet?format=json'
+      };
+      const keys=Object.keys(sources);
+      const calls=await Promise.allSettled(keys.map(key=>upstream(sources[key],180000)));
+      const feeds=Object.fromEntries(keys.map((key,index)=>{
+        const call=calls[index];
+        if(call.status==='rejected')return [key,{ok:false,error:String(call.reason?.message||'AWC feed unavailable'),items:[]}];
+        if(call.value!==null&&!Array.isArray(call.value))
+          return [key,{ok:false,error:'Unexpected AWC response format',items:[]}];
+        return [key,{ok:true,items:(call.value||[]).slice(0,400)}];
+      }));
+      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=120'});
+      res.end(JSON.stringify({station:icao,scope:{pireps:'Reports within 200 NM, past 3 hours',sigmets:'US/wide-area bulletin feed — not airport-filtered',gairmets:'CONUS graphical advisories — not airport-filtered'},feeds,checkedAt:new Date().toISOString()}));return;
+    }
     if(u.pathname==='/api/winds-aloft'){
       const fcst=u.searchParams.get('fcst')||'06';
       const station=(u.searchParams.get('station')||'OMA').toUpperCase();
