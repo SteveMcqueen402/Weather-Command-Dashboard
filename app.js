@@ -462,6 +462,53 @@ function hazardItem(o,kind,full=false){
  }else if(raw){const snippet=document.createElement('span');snippet.className='hazard-snippet';snippet.textContent=raw.slice(0,130);item.append(snippet);}
  return item;
 }
+
+const advisoryNames={'FZLVL':'Freezing level','TURB-HI':'High-altitude turbulence','TURB-LO':'Low-altitude turbulence','MT_OBSC':'Mountain obscuration','MTN_OBS':'Mountain obscuration','LLWS':'Low-level wind shear','SFC_WIND':'Strong surface winds','ICE':'Icing','IFR':'IFR conditions','TURB':'Turbulence','CONVECTIVE':'Thunderstorms'};
+function advisoryName(code){
+ const key=String(code||'').toUpperCase().replace(/_/g,'-');
+ return advisoryNames[key]||String(code||'Advisory').replace(/_/g,' ');
+}
+function advisoryZulu(value){
+ if(value==null||value==='')return '';
+ const n=Number(value),s=String(value);
+ const d=(typeof value==='number'||(s.length===10&&Number.isFinite(n)))?new Date(n*1000):new Date(value);
+ return Number.isNaN(d.getTime())?'':String(d.getUTCHours()).padStart(2,'0')+String(d.getUTCMinutes()).padStart(2,'0')+'Z';
+}
+function advisoryArea(o){
+ const region=firstValue(o,['area','regions','region','location','locationRef','areaDesc','states']);
+ if(typeof region==='string'&&region.trim())return region.trim();
+ const pairs=[];
+ function walk(v){
+  if(!Array.isArray(v))return;
+  if(v.length>=2&&typeof v[0]==='number'&&typeof v[1]==='number'){
+   if(Number.isFinite(v[0])&&Number.isFinite(v[1]))pairs.push(v);
+   return;
+  }
+  for(const child of v)walk(child);
+ }
+ walk(o.geometry?.coordinates);
+ if(pairs.length){
+  const latitudes=pairs.map(p=>p[1]),longitudes=pairs.map(p=>p[0]);
+  const lat=(Math.min(...latitudes)+Math.max(...latitudes))/2;
+  const lon=(Math.min(...longitudes)+Math.max(...longitudes))/2;
+  if(Math.abs(lat)<=90&&Math.abs(lon)<=180)return 'Map center '+Math.abs(lat).toFixed(0)+(lat>=0?'N':'S')+' '+Math.abs(lon).toFixed(0)+(lon>=0?'E':'W');
+ }
+ return '';
+}
+function advisoryBrief(o,kind){
+ const raw=rawHazard(o).split(/\s+/).join(' ').trim();
+ const type=hazardTag(o);
+ const name=kind==='convective'?'Thunderstorms':advisoryName(type||hazardLabel(o,kind));
+ const level=o.level!=null&&Number.isFinite(Number(o.level))?'Freezing level '+(Number(o.level)*100).toLocaleString('en-US')+' ft MSL':'';
+ const from=advisoryZulu(firstValue(o,['validTimeFrom','validTime','issueTime']));
+ const to=advisoryZulu(o.validTimeTo);
+ const timing=from&&to?from+'–'+to:from||to;
+ const area=advisoryArea(o);
+ const severity=firstValue(o,['severity','dueTo']);
+ const signal=kind==='convective'?'':String(type||'').toUpperCase()==='FZLVL'?level:(typeof severity==='string'?severity:'');
+ const summary=[name,signal,area,timing].filter(Boolean).join(' · ');
+ return summary||raw.slice(0,110)||'Advisory details unavailable';
+}
 function renderHazard(kind,message){
  const items=hazardState[kind],holder=$('#'+kind+'-items');
  const status=$('#'+kind+'-status');if(!holder||!status)return;
@@ -475,14 +522,7 @@ function renderHazard(kind,message){
   // retain the full structured metadata and original report text.
   const glance=document.createElement('span');
   glance.className='hazard-glance';
-  const label=hazardLabel(o,kind);
-  const raw=rawHazard(o).replace(/\s+/g,' ').trim();
-  const area=firstValue(o,['area','regions','region','location','locationRef','icaoId','station','id']);
-  const detail=raw&&raw.toUpperCase()!==label.toUpperCase()?raw:(area?String(area):'');
-  const areaText=area?String(area):'';
-  const signal=kind==='pirep'?[o.fltLvl&&'FL '+o.fltLvl,o.turbInten&&'Turb '+o.turbInten,o.iceInten&&'Ice '+o.iceInten].filter(Boolean).join(' · '):[o.validTimeFrom&&'Valid '+dateTime(o.validTimeFrom),o.validTimeTo&&'to '+dateTime(o.validTimeTo)].filter(Boolean).join(' ');
-  const reportSummary=[signal,areaText,detail].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(' · ');
-  const complete=[label,reportSummary].filter(Boolean).join(' · ');
+  const complete=advisoryBrief(o,kind);
   glance.textContent=complete;
   glance.title=complete;
   item.prepend(glance);
