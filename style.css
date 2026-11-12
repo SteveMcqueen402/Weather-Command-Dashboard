@@ -1369,3 +1369,121 @@ body.dashboard-fit .wall .panelhead > .panel-expand-control{
  width:30px!important;height:30px!important;
  min-width:30px!important;min-height:30px!important;
 }
+
+/* FBO Fit Screen: meaningful overview content, with details available on expansion. */
+body.dashboard-fit:not(.card-focus-open) .rightstack .panelhead{
+  display:flex!important;align-items:center!important;gap:6px!important;
+  margin:0 0 4px!important;padding:0 0 3px!important;min-height:25px!important;
+}
+body.dashboard-fit:not(.card-focus-open) .rightstack .panelhead h2{
+  font-size:clamp(12px,1vw,15px)!important;line-height:1.1!important;
+  margin:0!important;white-space:nowrap!important;
+}
+body.dashboard-fit:not(.card-focus-open) .rightstack .panelhead .panel-expand-control{
+  margin-left:auto!important;
+}
+body.dashboard-fit:not(.card-focus-open) #route-section .route-current{
+  font-size:clamp(13px,1.05vw,17px)!important;margin:0 0 3px!important;
+}
+body.dashboard-fit:not(.card-focus-open) #route-section .route-numbers{
+  display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:5px!important;margin:2px 0!important;
+}
+body.dashboard-fit:not(.card-focus-open) #route-section .route-numbers>div{
+  min-width:0!important;padding:4px!important;
+}
+body.dashboard-fit:not(.card-focus-open) #route-section .route-numbers strong{
+  display:block!important;font-size:clamp(17px,1.5vw,25px)!important;
+  line-height:1.1!important;white-space:nowrap!important;
+}
+body.dashboard-fit:not(.card-focus-open) #route-section .route-numbers small{
+  display:block!important;font-size:clamp(10px,.7vw,12px)!important;
+  line-height:1.15!important;white-space:normal!important;
+}
+body.dashboard-fit:not(.card-focus-open) #route-section .route-edit-trigger{
+  padding:3px 6px!important;font-size:12px!important;line-height:1.2!important;
+}
+body.dashboard-fit:not(.card-focus-open) #route-section .route-wind-summary,
+body.dashboard-fit:not(.card-focus-open) #route-section .route-leg-breakdown{
+  display:none!important;
+}
+body.dashboard-fit:not(.card-focus-open) #forecast-section .forecast-top{
+  display:none!important;
+}
+body.dashboard-fit:not(.card-focus-open) #forecast-section .forecast-days{
+  display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;
+  gap:4px!important;overflow:visible!important;flex:1 1 auto!important;
+  min-height:0!important;margin:0!important;
+}
+body.dashboard-fit:not(.card-focus-open) #forecast-section .day{
+  display:flex!important;flex-direction:column!important;align-items:center!important;
+  min-width:0!important;min-height:0!important;padding:3px!important;gap:1px!important;
+}
+body.dashboard-fit:not(.card-focus-open) #forecast-section .day .symbol{
+  font-size:clamp(17px,1.6vw,26px)!important;margin:0!important;line-height:1!important;
+}
+body.dashboard-fit:not(.card-focus-open) #forecast-section .day .temperature{
+  font-size:clamp(17px,1.4vw,24px)!important;line-height:1.1!important;
+}
+body.dashboard-fit:not(.card-focus-open) #forecast-section .day strong,
+body.dashboard-fit:not(.card-focus-open) #forecast-section .day small{
+  font-size:clamp(10px,.75vw,13px)!important;line-height:1.15!important;
+  overflow:hidden!important;text-overflow:ellipsis!important;
+  display:-webkit-box!important;-webkit-line-clamp:2!important;-webkit-box-orient:vertical!important;
+  text-align:center!important;
+}
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-status{
+  font-size:clamp(10px,.75vw,12px)!important;line-height:1.15!important;
+  padding:0!important;margin:0 0 3px!important;
+}
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-items{
+  display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:5px!important;flex:1 1 auto!important;min-height:0!important;
+  overflow:hidden!important;
+}
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-items .hazard-item:nth-child(n){
+  display:flex!important;flex-direction:column!important;gap:2px!important;
+  min-width:0!important;padding:4px!important;overflow:hidden!important;
+}
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-item strong{
+  font-size:clamp(11px,.83vw,14px)!important;line-height:1.18!important;
+}
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-meta,
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-snippet{
+  display:-webkit-box!important;-webkit-box-orient:vertical!important;
+  -webkit-line-clamp:2!important;overflow:hidden!important;
+  font-size:clamp(10px,.7vw,12px)!important;line-height:1.2!important;
+  overflow-wrap:anywhere!important;
+}
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-empty{
+  grid-column:1/-1;
+}
+@media(max-width:1000px){
+ body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-items{
+  grid-template-columns:1fr!important;gap:2px!important;
+ }
+ body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-items .hazard-item{
+  padding:2px 4px!important;
+ }
+}
+
+/* Narrow bulletin cards read better as three stacked summaries than tiny columns. */
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-items{
+  display:flex!important;flex-direction:column!important;gap:3px!important;
+}
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-items .hazard-item:nth-child(n){
+  display:block!important;flex:1 1 0!important;min-height:0!important;
+  padding:3px 5px!important;
+}
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-item strong{
+  display:block!important;white-space:nowrap!important;overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-item .hazard-meta{
+  display:block!important;white-space:nowrap!important;overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-item .hazard-snippet{
+  display:block!important;white-space:nowrap!important;overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}

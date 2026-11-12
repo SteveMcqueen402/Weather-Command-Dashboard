@@ -184,7 +184,7 @@ $('#route-wind-refresh').addEventListener('click',loadRouteWinds);
 for(const name of ['groundspeed','fuelburn','route-altitude'])$('#'+name).addEventListener('input',calculateRoute);
 for(const name of ['route-wind-cycle','route-wind-station'])$('#'+name).addEventListener('change',loadRouteWinds);
 $('#route-wind-station').addEventListener('input',()=>{routeWindState.report=null;routeWindState.error='Forecast station changed; update route winds';calculateRoute()});
-function updateForecastLocations(){const selected=$('#forecast-select').value;const opts=[{id:current.homeId},...current.route.filter(x=>x.id!==current.homeId)].filter((p,i,a)=>a.findIndex(x=>x.id===p.id)===i);$('#forecast-select').replaceChildren();opts.forEach(p=>{const option=document.createElement('option');option.value=p.id;option.textContent=p.id;$('#forecast-select').append(option)});$('#forecast-select').value=opts.some(x=>x.id===selected)?selected:current.route.at(-1)?.id||current.homeId;loadLocationForecast()}
+function updateForecastLocations(){const selected=$('#forecast-select').value;const opts=[{id:current.homeId},...current.route.filter(x=>x.id!==current.homeId)].filter((p,i,a)=>a.findIndex(x=>x.id===p.id)===i);$('#forecast-select').replaceChildren();opts.forEach(p=>{const option=document.createElement('option');option.value=p.id;option.textContent=p.id;$('#forecast-select').append(option)});$('#forecast-select').value=opts.some(x=>x.id===selected)?selected:current.homeId;loadLocationForecast()}
 
 const categoryClass=cat=>['VFR','MVFR','IFR','LIFR'].includes(cat)?cat.toLowerCase():'unknown';
 function routeMarker(p,index){
@@ -429,7 +429,7 @@ function renderHazard(kind,message){
  const scope=kind==='pirep'?hazardState.scope.pireps:hazardState.scope.sigmets;
  status.textContent=message||((kind==='pirep'?'100 mi from home · past 3 hours':'Wide-area bulletins · check coverage')+' · '+items.length+' reports');
  if(!items.length){const empty=document.createElement('span');empty.className='hazard-empty';empty.textContent=message?'Data unavailable or not confirmed':'No reports returned for this feed';holder.append(empty);return;}
- items.slice(0,2).forEach(o=>holder.append(hazardItem(o,kind)));
+ items.slice(0,3).forEach(o=>holder.append(hazardItem(o,kind)));
 }
 async function loadHazards(){
  try{
