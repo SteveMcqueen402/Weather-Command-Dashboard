@@ -24,7 +24,16 @@ function changeBaseLayers(){
 const charts={surface:{name:'WPC Surface Analysis',image:'/api/chart/surface',source:'https://www.wpc.ncep.noaa.gov/html/sfc2.shtml'},convective:{name:'SPC Day 1 Convective Outlook',image:'/api/chart/convective',source:'https://www.spc.noaa.gov/products/outlook/'}};
 function dateTime(value){if(!value)return 'Time unavailable';const d=typeof value==='number'?new Date(value*1000):new Date(value);return Number.isNaN(+d)?'Time unavailable':d.toLocaleString('en-US',{timeZone:'America/Chicago',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});}
 function status(message){text('#notice',message)}
-async function fetchJSON(path){const r=await fetch(path);const data=await r.json().catch(()=>({error:'Invalid response'}));if(!r.ok)throw Error(data?.error||`${r.status} from ${path}`);return data}
+async function fetchJSON(path){
+ const r=await fetch(path,{cache:'no-store'});
+ const raw=await r.text();
+ let data;
+ try{data=JSON.parse(raw)}catch{
+  throw Error('Weather service returned '+(r.status||'an invalid response')+' instead of weather data ('+path.split('?')[0]+').');
+ }
+ if(!r.ok)throw Error(data?.error||'Weather service error '+r.status+' ('+path.split('?')[0]+')');
+ return data;
+}
 function setTab(group,selected){$$(`[data-${group}]`).forEach(el=>el.classList.toggle('active',el.dataset[group]===selected))}
 function showModal(title,content,source){text('#modal-title',title);const container=$('#modal-content');container.replaceChildren();if(typeof content==='string')container.innerHTML=content;else if(content)container.append(content);const l=$('#modal-link');l.href=source||'#';l.classList.toggle('hidden',!source);$('#modal').classList.remove('hidden');$('#modal-close').focus()}
 function closeModal(){if(current.modalMapResizeObserver){current.modalMapResizeObserver.disconnect();current.modalMapResizeObserver=null}if(current.modalMap){current.modalMap.remove();current.modalMap=null;current.modalRouteLayer=null;current.modalRouteRadarLayer=null}$('#modal').classList.add('hidden');$('#modal-content').replaceChildren()}
@@ -269,8 +278,23 @@ if($('#expand-route-map'))$('#expand-route-map').onclick=expandRouteMap;
 if($('#route-radar'))$('#route-radar').onchange=e=>{current.routeRadarOn=e.target.checked;drawSmallRouteMap()};
 
 function drawRouteWeather(){const host=$('#route-weather');if(!host)return;host.replaceChildren();if(!current.route.length){host.textContent='No route has been entered.';return}for(const p of current.route){const line=document.createElement('div');line.className='airport-row';const btn=document.createElement('button');btn.textContent=p.id;btn.title='Show airport weather';btn.onclick=()=>openAirport(p);const cat=document.createElement('span');cat.textContent=p.metar?.fltCat||'NO METAR';cat.className='category '+(p.metar?.fltCat||'');line.append(btn,cat);host.append(line)}}
-async function loadRoute(e){e?.preventDefault();let ids;try{ids=[normalize($('#route-from').value),...$('#route-via').value.split(',').map(x=>x.trim()).filter(Boolean).map(normalize),normalize($('#route-to').value)];if(ids.length>12)throw Error('Use at most 12 airports');}catch(err){text('#route-status',err.message);return}const button=$('#route-form button[type=submit]');button.disabled=true;text('#route-status','Loading airport observations and route positions…');try{current.route=await lookupAirports(ids);drawRouteWeather();drawSmallRouteMap();const can=calculateRoute();loadRouteWinds();const found=current.route.filter(x=>x.metar).length;const noReports=current.route.filter(x=>!x.metar).map(x=>x.id);text('#route-status',`${found}/${ids.length} airport METARs available · ${can?'Straight-line distance shown; loading forecast winds for ETA/fuel.':'Some airport coordinates unavailable; estimate not calculated.'}${noReports.length?' No on-field METAR: '+noReports.join(', ')+'.':''} Not an operational flight plan.`);updateForecastLocations();if($('.tab.active')?.dataset.map==='route')mapMode('route')}catch(err){text('#route-status','Route lookup failed: '+err.message)}finally{button.disabled=false}}
+async function loadRoute(e){e?.preventDefault();let ids;try{ids=[normalize($('#route-from').value),...$('#route-via').value.split(',').map(x=>x.trim()).filter(Boolean).map(normalize),normalize($('#route-to').value)];if(ids.length>12)throw Error('Use at most 12 airports');}catch(err){text('#route-status',err.message);return}const button=$('#route-form button[type=submit]');button.disabled=true;text('#route-status','Loading airport observations and route positions…');try{current.route=await lookupAirports(ids);drawRouteWeather();drawSmallRouteMap();const can=calculateRoute();loadRouteWinds();const found=current.route.filter(x=>x.metar).length;const noReports=current.route.filter(x=>!x.metar).map(x=>x.id);text('#route-status',`${found}/${ids.length} airport METARs available · ${can?'Straight-line distance shown; loading forecast winds for ETA/fuel.':'Some airport coordinates unavailable; estimate not calculated.'}${noReports.length?' No on-field METAR: '+noReports.join(', ')+'.':''} Not an operational flight plan.`);updateForecastLocations();if($('.tab.active')?.dataset.map==='route')mapMode('route')}catch(err){showRouteInputs();text('#route-status','Route calculation unavailable: '+err.message)}finally{button.disabled=false}}
 $('#route-form').addEventListener('submit',loadRoute);
+// Reflect route inputs immediately, including when weather observations are unavailable.
+function showRouteInputs(){
+ const from=String($('#route-from')?.value||$('#quick-from')?.value||current.homeId).trim().toUpperCase();
+ const to=String($('#route-to')?.value||$('#quick-to')?.value||'').trim().toUpperCase();
+ text('#route-current-from',from||current.homeId);
+ text('#route-current-to',to||'Enter destination');
+}
+['#route-to','#route-from','#quick-to','#quick-from'].forEach(selector=>{
+ $(selector)?.addEventListener('input',()=>{
+  if(selector==='#quick-to')$('#route-to').value=$('#quick-to').value;
+  if(selector==='#quick-from')$('#route-from').value=$('#quick-from').value;
+  showRouteInputs();
+ });
+});
+showRouteInputs();
 // Airport lookup includes independent NOTAM retrieval for the LOOKED-UP airport,
 // not the home airport. Data remains labeled as staging when NMS_API_ENV=test.
 async function loadAirportPopupNotams(airport,holder){
