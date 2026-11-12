@@ -1466,3 +1466,24 @@ body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-empty{
   padding:2px 4px!important;
  }
 }
+
+/* Narrow bulletin cards read better as three stacked summaries than tiny columns. */
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-items{
+  display:flex!important;flex-direction:column!important;gap:3px!important;
+}
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-items .hazard-item:nth-child(n){
+  display:block!important;flex:1 1 0!important;min-height:0!important;
+  padding:3px 5px!important;
+}
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-item strong{
+  display:block!important;white-space:nowrap!important;overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-item .hazard-meta{
+  display:block!important;white-space:nowrap!important;overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-item .hazard-snippet{
+  display:block!important;white-space:nowrap!important;overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}
