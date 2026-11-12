@@ -439,7 +439,52 @@ $('#home-airport-form').addEventListener('submit',async e=>{
 
 const autoRefresh=$('#auto-refresh');autoRefresh.checked=readPref('wc-auto-refresh-v25','on')==='on';
 autoRefresh.onchange=()=>{writePref('wc-auto-refresh-v25',autoRefresh.checked?'on':'off');if(autoRefresh.checked)refresh()};
-$('#wall-mode').onclick=async()=>{try{if(!document.fullscreenElement)await document.documentElement.requestFullscreen();else await document.exitFullscreen()}catch(err){status('Fullscreen unavailable: '+err.message)}};
+// Fullscreen gracefully falls back to an app-style maximized view when the browser forbids the API.
+function refreshWallLabel(){const active=Boolean(document.fullscreenElement)||document.body.classList.contains('wall-maximized');text('#wall-mode',active?'⛶ Exit Wall':'⛶ Wall');}
+$('#wall-mode').onclick=async()=>{
+ if(document.fullscreenElement){try{await document.exitFullscreen()}catch(err){status('Unable to exit fullscreen: '+err.message)}refreshWallLabel();return}
+ if(document.body.classList.contains('wall-maximized')){document.body.classList.remove('wall-maximized');refreshWallLabel();return}
+ try{
+  if(typeof document.documentElement.requestFullscreen!=='function')throw Error('Native fullscreen is not supported');
+  await document.documentElement.requestFullscreen();
+ }catch(err){
+  document.body.classList.add('wall-maximized');
+  status('Browser fullscreen is restricted; using maximized dashboard display instead.');
+ }
+ refreshWallLabel();
+ setTimeout(()=>{repairMobileMap();fitDashboard()},150);
+};
+document.addEventListener('fullscreenchange',()=>{refreshWallLabel();setTimeout(()=>{repairMobileMap();fitDashboard()},150)});
+let fitActive=false;
+function fitDashboard(){
+ if(!fitActive)return;
+ const main=$('main'),header=$('.top');
+ if(!main)return;
+ // Use the dashboard's full landscape layout, then scale it to both viewport dimensions.
+ const width=Math.max(1180,window.innerWidth-16);
+ main.style.width=width+'px';main.style.maxWidth='none';
+ main.style.transform='none';
+ const headerHeight=header?.getBoundingClientRect().height||0;
+ const height=Math.max(100,window.innerHeight-headerHeight-8);
+ const natural=Math.max(main.scrollHeight,main.offsetHeight,1);
+ const scale=Math.max(0.08,Math.min(1,(window.innerWidth-8)/width,height/natural));
+ main.style.transform='scale('+scale+')';
+ main.style.transformOrigin='top left';
+ main.style.height=natural+'px';
+ main.dataset.fitScale=scale.toFixed(3);
+ [current.map,current.routeWeatherMap,current.modalMap].filter(Boolean).forEach(m=>setTimeout(()=>m.invalidateSize({pan:false}),100));
+}
+function toggleFit(){
+ fitActive=!fitActive;
+ const main=$('main');
+ document.body.classList.toggle('dashboard-fit',fitActive);
+ text('#fit-screen',fitActive?'⤢ Exit Fit':'⤢ Fit Screen');
+ if(!fitActive){main.style.removeProperty('width');main.style.removeProperty('max-width');main.style.removeProperty('height');main.style.removeProperty('transform');main.style.removeProperty('transform-origin');delete main.dataset.fitScale;repairMobileMap();return}
+ fitDashboard();
+}
+$('#fit-screen').onclick=toggleFit;
+window.addEventListener('resize',()=>{if(fitActive)requestAnimationFrame(fitDashboard)});
+
 function repairMobileMap(){if(!current.map)return;const visible=$('#main-map')?.getBoundingClientRect();if(visible&&visible.width>20&&visible.height>20){current.map.invalidateSize({pan:false});if(!current.mapLayer&&['radar','route'].includes($('.tab.active')?.dataset.map))current.mapLayer=addRadarLayer(current.map)}}
 window.addEventListener('resize',()=>setTimeout(repairMobileMap,120));
 window.addEventListener('orientationchange',()=>setTimeout(repairMobileMap,500));
