@@ -427,7 +427,7 @@ function renderHazard(kind,message){
  const status=$('#'+kind+'-status');if(!holder||!status)return;
  holder.replaceChildren();
  const scope=kind==='pirep'?hazardState.scope.pireps:hazardState.scope.sigmets;
- status.textContent=message||((kind==='pirep'?'Near home · past 3 hours':'Wide-area bulletins · check coverage')+' · '+items.length+' reports');
+ status.textContent=message||((kind==='pirep'?'100 mi from home · past 3 hours':'Wide-area bulletins · check coverage')+' · '+items.length+' reports');
  if(!items.length){const empty=document.createElement('span');empty.className='hazard-empty';empty.textContent=message?'Data unavailable or not confirmed':'No reports returned for this feed';holder.append(empty);return;}
  items.slice(0,2).forEach(o=>holder.append(hazardItem(o,kind)));
 }
@@ -439,6 +439,7 @@ async function loadHazards(){
   hazardState.scope=d.scope||{};
   const p=d.feeds?.pireps,sg=d.feeds?.sigmets,ga=d.feeds?.gairmets;
   hazardState.pirep=p?.ok?p.items||[]:[];
+  const pirepStale=Boolean(p?.stale);
   const sigmets=sg?.ok?sg.items||[]:[];
   hazardState.convective=sigmets.filter(hazardIsConvective);
   hazardState.sigmet=[...sigmets.filter(x=>!hazardIsConvective(x)),...(ga?.ok?ga.items||[]:[])];
@@ -446,7 +447,7 @@ async function loadHazards(){
     convective:sg?.ok?'':sg?.error||'Convective SIGMET feed unavailable'};
   for(const kind of ['pirep','sigmet','convective']){
    const error=hazardState.errors[kind];
-   renderHazard(kind,error?'NOAA feed error: '+error:null);
+   renderHazard(kind,error?'NOAA feed error: '+error:kind==='pirep'&&pirepStale?'STALE REPORTS — live PIREP feed timed out':null);
   }
  }catch(err){
   for(const kind of ['pirep','sigmet','convective']){hazardState[kind]=[];hazardState.errors[kind]=err.message;renderHazard(kind,'Unable to check feed: '+err.message)}
@@ -457,7 +458,7 @@ $$('[data-hazard-expand]').forEach(button=>button.addEventListener('click',()=>{
  const title={pirep:'Recent pilot reports',sigmet:'SIGMETs and G-AIRMETs (US-wide)',convective:'Convective SIGMETs (US-wide)'}[kind]||'Aviation hazards';
  const box=document.createElement('div');box.className='hazard-modal';
  const notice=document.createElement('p');notice.className='source-note';
- notice.textContent=kind==='pirep'?'Reports within 200 NM of the home airport during the past 3 hours.':'National/wide-area bulletins. Display does NOT confirm an advisory affects your airport or route; verify the coverage and validity.';
+ notice.textContent=kind==='pirep'?'Reports within 100 statute miles of the home airport during the past 3 hours.':'National/wide-area bulletins. Display does NOT confirm an advisory affects your airport or route; verify the coverage and validity.';
  box.append(notice);
  if(hazardState.errors[kind]){const err=document.createElement('p');err.textContent=hazardState.errors[kind];box.append(err)}
  const items=hazardState[kind]||[];
@@ -533,35 +534,19 @@ document.addEventListener('fullscreenchange',()=>{refreshWallLabel();setTimeout(
 let fitActive=false;
 function fitDashboard(){
  if(!fitActive)return;
- const main=$('main'),header=$('.top');
+ const main=$('main');
  if(!main)return;
- // Reflow at a wider internal size as we scale down: the rendered dashboard
- // fills the available width AND height, instead of occupying only the left half.
- const viewWidth=Math.max(320,window.innerWidth-12);
- const headerHeight=header?.getBoundingClientRect().height||0;
- const viewHeight=Math.max(160,window.innerHeight-headerHeight-6);
- main.style.transform='none';
+ // FBO mode uses a real viewport-based grid; whole-page scaling makes text
+ // illegible on a wall monitor and creates distorted map touch coordinates.
+ main.style.removeProperty('width');
+ main.style.removeProperty('max-width');
  main.style.removeProperty('height');
- main.style.maxWidth='none';
- let scale=1;
- for(let pass=0;pass<5;pass++){
-  const internalWidth=Math.min(5000,viewWidth/scale);
-  main.style.width=internalWidth+'px';
-  const contentHeight=Math.max(1,main.scrollHeight,main.offsetHeight);
-  const next=Math.max(0.12,Math.min(1,viewHeight/contentHeight));
-  if(Math.abs(next-scale)<0.006){scale=next;break}
-  scale=next;
+ main.style.removeProperty('transform');
+ main.style.removeProperty('transform-origin');
+ delete main.dataset.fitScale;
+ for(const map of [current.map,current.routeWeatherMap,current.modalMap].filter(Boolean)){
+  setTimeout(()=>{try{map.invalidateSize({pan:false})}catch{}},120);
  }
- main.style.width=Math.min(5000,viewWidth/scale)+'px';
- const naturalHeight=Math.max(1,main.scrollHeight,main.offsetHeight);
- scale=Math.max(0.12,Math.min(1,viewHeight/naturalHeight));
- // Fit both dimensions after final layout; never allow content to clip offscreen.
- scale=Math.min(scale,viewWidth/main.offsetWidth);
- main.style.transform='scale('+scale+')';
- main.style.transformOrigin='top left';
- main.style.height=naturalHeight+'px';
- main.dataset.fitScale=scale.toFixed(3);
- [current.map,current.routeWeatherMap].filter(Boolean).forEach(m=>setTimeout(()=>m.invalidateSize({pan:false}),100));
 }
 function toggleFit(){
  fitActive=!fitActive;
@@ -718,104 +703,113 @@ $('#notam-expand').addEventListener('click',()=>{
 // Persist per browser; includes all four summary cards and every detailed panel.
 (function setupFreeLayout(){
  const board=$('#custom-board'),toggle=$('#layout-toggle'),reset=$('#layout-reset');
- const shortcuts=$('.quicklinks'),rightStack=$('.rightstack'),wall=$('.wall');
- const moveShortcuts=(custom)=>{
-  if(!shortcuts||!rightStack||!wall)return;
-  if(custom)wall.after(shortcuts);
-  else rightStack.append(shortcuts);
- };
  if(!board||!toggle||!reset)return;
- const ids=['temp','dewpoint','wind','flightcat','notam-home-id','airport-section','wind-section','charts-section','route-section','forecast-section','notam-section','pirep-panel','sigmet-panel','convective-panel'];
+ const ids=['temp','dewpoint','wind','flightcat','notam-home-id','airport-section','wind-section','charts-section',
+  'route-section','forecast-section','notam-section','pirep-panel','sigmet-panel','convective-panel'];
  const tiles=ids.slice(0,5).map(id=>document.getElementById(id)?.closest('.stat')).filter(Boolean);
- const details=ids.slice(5).map(id=>document.getElementById(id)).filter(Boolean);
- const nodes=[...tiles,...details];
+ const nodes=[...tiles,...ids.slice(5).map(id=>document.getElementById(id)).filter(Boolean)];
+ const originals=new Map(nodes.map(n=>[n,{parent:n.parentElement,index:[...n.parentElement.children].indexOf(n)}]));
  tiles.forEach((n,i)=>{n.id='tile-'+['forecast','dewpoint','wind','category','notam'][i]});
- const originals=new Map(nodes.map(n=>({node:n,parent:n.parentElement,next:n.nextSibling})) .map(x=>[x.node,{parent:x.parent,next:x.next}]));
- const key='weather-command-free-layout-v17';
- let active=false,editing=false,interaction=null;
- let raf=0;
- const minW=185,minH=78;
- const rectBoard=()=>board.getBoundingClientRect();
- const maxRight=()=>Math.max(0,...nodes.map(n=>n.offsetLeft+n.offsetWidth));
- const maxBottom=()=>Math.max(0,...nodes.map(n=>n.offsetTop+n.offsetHeight));
- const refreshMaps=()=>{cancelAnimationFrame(raf);raf=requestAnimationFrame(()=>{setTimeout(()=>{for(const m of mapsRegistry){try{m.invalidateSize()}catch{}}},65)})};
- function adjustBoard(){if(!active)return;board.style.minHeight=(maxBottom()+28)+'px'}
- function state(){return {version:15,boardWidth:board.clientWidth,cards:nodes.map(n=>({id:n.id,x:n.offsetLeft,y:n.offsetTop,w:n.offsetWidth,h:n.offsetHeight,collapsed:n.classList.contains('card-collapsed'),openHeight:Number(n.dataset.openHeight)||0}))}}
- function save(){if(!active)return;try{localStorage.setItem(key,JSON.stringify(state()))}catch{}adjustBoard()}
- const clamp=(n,lo,hi)=>Math.max(lo,Math.min(hi,n));
- function position(n,x,y,w,h){
-   const width=board.clientWidth||1100;
-   const proposedW=clamp(Math.round(w),Math.min(minW,width),width);
-   n.style.position='absolute';n.style.left=clamp(Math.round(x),0,Math.max(0,width-proposedW))+'px';n.style.top=Math.max(0,Math.round(y))+'px';
-   n.style.width=proposedW+'px';n.style.height=Math.max(minH,Math.round(h))+'px';
+ const key='weather-command-tile-layout-v18';
+ const defaults={};
+ nodes.forEach(n=>defaults[n.id]=n.classList.contains('stat')?2:n.id==='charts-section'?6:3);
+ let active=false,editing=false;
+ const cols=()=>window.innerWidth<680?1:window.innerWidth<1050?6:12;
+ const savedSpan=n=>Math.max(1,Math.min(cols(),Number(n.dataset.span)||defaults[n.id]||3));
+ const mapRefresh=()=>setTimeout(()=>{for(const map of mapsRegistry){try{map.invalidateSize({pan:false})}catch{}}},90);
+ function persist(){
+  if(!active)return;
+  const cards=[...board.children].filter(n=>nodes.includes(n)).map(n=>({id:n.id,span:Number(n.dataset.span)||defaults[n.id],collapsed:n.classList.contains('card-collapsed')}));
+  try{localStorage.setItem(key,JSON.stringify({version:18,cards}))}catch{}
  }
- function measuredLayout(){
-   const base=rectBoard(), mainRect=board.parentElement.getBoundingClientRect();
-   let fallback=0;
-   return nodes.map(n=>{
-     const r=n.getBoundingClientRect();
-     if(r.width<5||r.height<5){const y=fallback;fallback+=240;return {n,x:0,y,w:Math.min(board.clientWidth,370),h:220}}
-     return {n,x:r.left-mainRect.left,y:r.top-base.top,w:r.width,h:r.height};
-   });
+ function applyCard(n,entry){
+  n.dataset.span=String(Math.max(1,Math.min(12,Number(entry?.span)||defaults[n.id])));
+  n.style.setProperty('--custom-span',String(savedSpan(n)));
+  n.classList.toggle('card-collapsed',Boolean(entry?.collapsed));
+  const collapse=n.querySelector('.tile-collapse');if(collapse)collapse.textContent=n.classList.contains('card-collapsed')?'+ Expand':'− Collapse';
+ }
+ function rescale(){
+  if(!active)return;
+  nodes.forEach(n=>n.style.setProperty('--custom-span',String(savedSpan(n))));
+  mapRefresh();
+ }
+ function move(n,delta){
+  const items=[...board.children].filter(x=>nodes.includes(x)),index=items.indexOf(n);
+  if(index<0)return;
+  const next=index+delta;if(next<0||next>=items.length)return;
+  if(delta>0)board.insertBefore(items[next],n);
+  else board.insertBefore(n,items[next]);
+  persist();mapRefresh();
+ }
+ function addControls(n){
+  if(n.querySelector(':scope > .tile-controls'))return;
+  const toolbar=document.createElement('div');toolbar.className='tile-controls';
+  const addButton=(label,title,handler)=>{
+   const button=document.createElement('button');button.type='button';button.textContent=label;button.title=title;
+   button.addEventListener('click',e=>{e.stopPropagation();handler()});toolbar.append(button);return button;
+  };
+  addButton('←','Move card earlier',()=>move(n,-1));
+  addButton('→','Move card later',()=>move(n,1));
+  addButton('− Size','Make card narrower',()=>{n.dataset.span=String(Math.max(1,(Number(n.dataset.span)||defaults[n.id])-1));rescale();persist()});
+  addButton('+ Size','Make card wider',()=>{n.dataset.span=String(Math.min(12,(Number(n.dataset.span)||defaults[n.id])+1));rescale();persist()});
+  const collapse=addButton('− Collapse','Collapse or expand card',()=>{
+   n.classList.toggle('card-collapsed');
+   collapse.textContent=n.classList.contains('card-collapsed')?'+ Expand':'− Collapse';
+   persist();mapRefresh();
+  });
+  collapse.className='tile-collapse';
+  n.prepend(toolbar);
  }
  function enter(saved){
-   if(active)return;board.classList.remove('hidden');const measurements=measuredLayout();
-   document.body.classList.add('free-layout-active');
-   moveShortcuts(true);
-   nodes.forEach(n=>board.appendChild(n));active=true;
-   const data=new Map((saved?.cards||[]).map(x=>[x.id,x]));const scale=saved?.boardWidth>0?board.clientWidth/saved.boardWidth:1;
-   let safetyY=0;
-   for(const m of measurements){const c=data.get(m.n.id);let x=c?c.x*scale:m.x,y=c?c.y:m.y,w=c?c.w*scale:m.w,h=c?c.h:m.h;
-     if(!Number.isFinite(y)||y<0||(!c&&m.w<10)){y=safetyY;x=0;w=300;h=240}
-     position(m.n,x,y,w,h);safetyY=Math.max(safetyY,y+h+12);
-     if(c?.collapsed){m.n.dataset.openHeight=String(c.openHeight||h);m.n.classList.add('card-collapsed');m.n.style.height='56px'}
-   }
-   nodes.forEach(addControls);adjustBoard();refreshMaps();text('#layout-state','Custom layout saved on this device');
+  if(active)return;
+  if(fitActive)toggleFit(); // Never edit a scaled coordinate system.
+  active=true;
+  board.classList.remove('hidden');
+  document.body.classList.add('free-layout-active');
+  const cards=new Map((saved?.cards||[]).map(c=>[c.id,c]));
+  const ordered=saved?.version===18?[...saved.cards].map(c=>nodes.find(n=>n.id===c.id)).filter(Boolean):nodes;
+  for(const n of [...ordered,...nodes.filter(n=>!ordered.includes(n))]){
+   board.append(n);addControls(n);applyCard(n,cards.get(n.id));
+  }
+  rescale();
  }
- function addControls(n){if(n.querySelector(':scope > .free-controls'))return;
-   const toolbar=document.createElement('div');toolbar.className='free-controls';
-   const drag=document.createElement('div');drag.className='free-grip';drag.tabIndex=0;drag.title='Drag to move panel';drag.textContent='⠿ MOVE';
-   const collapse=document.createElement('button');collapse.type='button';collapse.className='free-collapse';collapse.title='Collapse or expand panel';collapse.textContent=n.classList.contains('card-collapsed')?'+':'−';
-   const handle=document.createElement('div');handle.className='free-resize';handle.title='Drag corner to resize width and height';handle.setAttribute('role','separator');handle.setAttribute('aria-label','Resize panel');
-   collapse.addEventListener('click',e=>{e.stopPropagation();const shrinking=!n.classList.contains('card-collapsed');if(shrinking){n.dataset.openHeight=n.offsetHeight;n.classList.add('card-collapsed');n.style.height='56px';collapse.textContent='+'}
-      else{n.classList.remove('card-collapsed');n.style.height=Math.max(150,Number(n.dataset.openHeight)||230)+'px';collapse.textContent='−'}save();refreshMaps()});
-   for(const [target,mode] of [[drag,'move'],[handle,'resize']]){
-     target.addEventListener('pointerdown',e=>{
-       if((mode==='move'&&!editing)||e.button!==0)return;e.preventDefault();e.stopPropagation();
-       interaction={id:e.pointerId,n,mode,startX:e.clientX,startY:e.clientY,x:n.offsetLeft,y:n.offsetTop,w:n.offsetWidth,h:n.offsetHeight};
-       n.style.zIndex='20';target.setPointerCapture(e.pointerId);document.body.classList.add('free-drag-active');
-     });
-     target.addEventListener('pointermove',e=>{
-       if(!interaction||interaction.id!==e.pointerId||interaction.n!==n)return;
-       e.preventDefault();const k=interaction,dx=e.clientX-k.startX,dy=e.clientY-k.startY;
-       if(k.mode==='move')position(n,k.x+dx,k.y+dy,k.w,k.h);
-       else{if(n.classList.contains('card-collapsed')){n.classList.remove('card-collapsed');n.style.height=Math.max(150,Number(n.dataset.openHeight)||200)+'px';collapse.textContent='−'}position(n,k.x,k.y,k.w+dx,k.h+dy)}
-       adjustBoard();refreshMaps();
-     });
-     const stop=e=>{if(!interaction||interaction.id!==e.pointerId||interaction.n!==n)return;n.style.zIndex='';interaction=null;document.body.classList.remove('free-drag-active');save();refreshMaps()};
-     target.addEventListener('pointerup',stop);target.addEventListener('pointercancel',stop);
-   }
-   drag.addEventListener('keydown',e=>{if(!editing)return;const dirs={ArrowLeft:[-16,0],ArrowRight:[16,0],ArrowUp:[0,-16],ArrowDown:[0,16]};if(!dirs[e.key])return;e.preventDefault();position(n,n.offsetLeft+dirs[e.key][0],n.offsetTop+dirs[e.key][1],n.offsetWidth,n.offsetHeight);save()});
-   toolbar.append(drag,collapse);n.append(toolbar,handle);
+ function setEditing(value){
+  editing=value;document.body.classList.toggle('free-layout-editing',value);
+  toggle.textContent=value?'Done Arranging':'Arrange Panels';
+  toggle.setAttribute('aria-pressed',String(value));
+  text('#layout-state',value?'Use arrows to reorder; −/+ Size changes card width. Cards never overlap.':'Custom arrangement saved');
+  persist();mapRefresh();
  }
- function setEditing(v){editing=v;document.body.classList.toggle('free-layout-editing',v);toggle.textContent=v?'Done Arranging':'Arrange Panels';toggle.setAttribute('aria-pressed',String(v));text('#layout-state',v?'Drag MOVE handle; pull lower-right corner to resize; − collapses':'Custom layout saved on this device');refreshMaps()}
- toggle.addEventListener('click',()=>{if(!active)enter(null);setEditing(!editing);save()});
- reset.addEventListener('click',()=>{
-   if(!window.confirm('Restore original dashboard arrangement on this device?'))return;
-   setEditing(false);nodes.forEach(n=>{
-     n.querySelector(':scope > .free-controls')?.remove();n.querySelector(':scope > .free-resize')?.remove();
-     n.classList.remove('card-collapsed');n.removeAttribute('style');delete n.dataset.openHeight;
-   });
-   nodes.forEach(n=>{const o=originals.get(n);if(o?.next&&o.next.parentNode===o.parent)o.parent.insertBefore(n,o.next);else o.parent.append(n)});
-   // original order is preserved by DOM for the four tiles, even after moving them into the custom canvas
-   const byParent=[...new Set(nodes.map(n=>originals.get(n).parent))];for(const parent of byParent){const part=nodes.filter(n=>originals.get(n).parent===parent);part.forEach((n)=>{const after=originals.get(n).next;if(after?.parentNode===parent)parent.insertBefore(n,after)})}
-   board.classList.add('hidden');board.style.minHeight='';document.body.classList.remove('free-layout-active');active=false;
-   moveShortcuts(false);
-   try{localStorage.removeItem(key);localStorage.removeItem('wc-layout-v13');localStorage.removeItem('weather-command-layout-v12')}catch{}
-   text('#layout-state','Default layout');refreshMaps();
+ toggle.addEventListener('click',()=>{
+  if(!active)enter(null);
+  setEditing(!editing);
  });
- window.addEventListener('resize',()=>{if(!active||interaction)return;const bw=board.clientWidth;nodes.forEach(n=>{if(n.offsetLeft+n.offsetWidth>bw)position(n,Math.min(n.offsetLeft,Math.max(0,bw-n.offsetWidth)),n.offsetTop,Math.min(n.offsetWidth,bw),n.offsetHeight)});adjustBoard();refreshMaps()});
- try{const saved=JSON.parse(localStorage.getItem(key)||'null');if(saved?.version===15&&Array.isArray(saved.cards)){enter(saved);setEditing(false)}}catch{}
+ reset.addEventListener('click',()=>{
+  if(!window.confirm('Restore the compact default dashboard layout on this device?'))return;
+  setEditing(false);
+  const originalParents=[...new Set([...originals.values()].map(o=>o.parent))];
+  for(const parent of originalParents){
+   const members=nodes.filter(n=>originals.get(n).parent===parent)
+    .sort((a,b)=>originals.get(a).index-originals.get(b).index);
+   for(const n of members){
+    n.querySelector(':scope > .tile-controls')?.remove();
+    n.classList.remove('card-collapsed');
+    n.style.removeProperty('--custom-span');delete n.dataset.span;
+    const reference=parent.children[originals.get(n).index]||null;
+    parent.insertBefore(n,reference);
+   }
+  }
+  board.classList.add('hidden');
+  document.body.classList.remove('free-layout-active','free-layout-editing');
+  active=false;
+  try{localStorage.removeItem(key);localStorage.removeItem('weather-command-free-layout-v17')}catch{}
+  text('#layout-state','Default layout');
+  mapRefresh();
+ });
+ window.addEventListener('resize',rescale);
+ try{
+  const saved=JSON.parse(localStorage.getItem(key)||'null');
+  if(saved?.version===18&&Array.isArray(saved.cards)){enter(saved);setEditing(false)}
+ }catch{}
 })();
-
 $('#radar-quality')?.addEventListener('change',()=>{if(current.map&&$('.tab.active')?.dataset.map==='radar')transitionRadar(current.map,'mapLayer');});

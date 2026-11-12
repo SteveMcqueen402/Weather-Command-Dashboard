@@ -334,21 +334,39 @@ const server=http.createServer(async(req,res)=>{
         Math.min(90,lat+radialDeg).toFixed(3),Math.min(180,lon+lonDeg).toFixed(3)
       ].join(',');
       const urls={
-        pireps:'https://aviationweather.gov/api/data/pirep?bbox='+encodeURIComponent(bbox)+'&age=3&format=json',
+        pireps:'https://aviationweather.gov/api/data/pirep?id='+encodeURIComponent(station)+'&distance=100&age=3&format=json',
         sigmets:'https://aviationweather.gov/api/data/airsigmet?format=json',
         gairmets:'https://aviationweather.gov/api/data/gairmet?format=json'
       };
+      // PIREP radius queries are much lighter than a large regional bbox.
+      // Keep a bounded successful snapshot for temporary upstream timeouts.
+      const pirepKey='awc-pireps-'+station;
+      const previousPireps=cache.get(pirepKey);
       async function getFeed(key){
         const url=urls[key];
         try{
           // Reuse the server-side request cache and existing AWC User-Agent.
-          const response=await upstream(url,180000);
-          if(response===null)return {ok:true,items:[],empty:true,source:'AWC',status:204};
+          let response;
+          if(key==='pireps'){
+            const controller=AbortSignal.timeout(9000);
+            const answer=await fetch(url,{headers:{'User-Agent':'WeatherCommandDashboard/3.2 (aviation weather dashboard)','Accept':'application/json'},signal:controller});
+            if(answer.status===204)response=null;
+            else {if(!answer.ok)throw Error('NOAA PIREP HTTP '+answer.status);response=await answer.json();}
+          }else response=await upstream(url,180000);
+          if(response===null){
+            if(key==='pireps')cache.set(pirepKey,{value:[],at:Date.now()});
+            return {ok:true,items:[],empty:true,source:'AWC',status:204};
+          }
           const list=Array.isArray(response)?response:
             (response?.type==='FeatureCollection'&&Array.isArray(response.features)?response.features.map(x=>({...x.properties,geometry:x.geometry})):null);
           if(!list)throw Error('Unexpected NOAA JSON response shape');
+          if(key==='pireps')cache.set(pirepKey,{value:list.slice(0,100),at:Date.now()});
           return {ok:true,items:list.slice(0,400),empty:list.length===0,source:'AWC',status:200};
         }catch(err){
+          if(key==='pireps'&&previousPireps&&Date.now()-previousPireps.at<3600000)
+            return {ok:true,items:previousPireps.value,empty:previousPireps.value.length===0,
+              source:'AWC (previous successful response)',stale:true,
+              error:'Live PIREP request timed out; showing older reports'};
           return {ok:false,items:[],empty:false,error:String(err?.message||err),source:'AWC'};
         }
       }
@@ -358,7 +376,7 @@ const server=http.createServer(async(req,res)=>{
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
       res.end(JSON.stringify({
         station,feeds,checkedAt:new Date().toISOString(),
-        scope:{pireps:'Bounding-box query approximately 200 NM around '+station+'; last 3 hours',
+        scope:{pireps:'Reports within 100 statute miles of '+station+'; last 3 hours (cached data explicitly labeled)',
         sigmets:'National and worldwide feed — NOT filtered to airport',
         gairmets:'CONUS G-AIRMET bulletins — NOT filtered to airport'}
       }));return;
