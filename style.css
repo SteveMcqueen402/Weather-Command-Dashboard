@@ -599,3 +599,23 @@ body.dashboard-fit .bottom-grid{grid-template-columns:repeat(3,minmax(0,1fr))!im
 body.dashboard-fit .map-area{height:450px!important;}
 body.wall-maximized .top{position:relative!important;}
 body.wall-maximized{min-height:100dvh;}
+
+/* v3.1: five compact overview tiles, full use of display width. */
+.stats{grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:9px!important}
+.stats>.stat{min-width:0;min-height:88px;padding:10px 12px!important}
+.stats .stathead{font-size:10px;letter-spacing:.5px}
+.stats .stathead span:last-child{font-size:14px}
+.stats .statvalue{font-size:23px;margin:4px 0 2px}
+.stats .stat small{font-size:10px}
+@media(max-width:900px){body:not(.dashboard-fit) .stats{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
+@media(max-width:580px){body:not(.dashboard-fit) .stats{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+body.dashboard-fit .stats{grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:8px!important}
+body.dashboard-fit .stats>.stat{min-height:77px!important;padding:8px 11px!important}
+body.dashboard-fit .stats .statvalue{font-size:21px!important}
+body.dashboard-fit .wall{grid-template-columns:minmax(270px,1fr) minmax(540px,2.2fr) minmax(300px,1.15fr)!important;gap:10px!important}
+body.dashboard-fit .leftstack,body.dashboard-fit .rightstack{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:9px!important;align-content:start!important}
+body.dashboard-fit .map-panel{min-width:0!important}
+body.dashboard-fit .map-area{height:440px!important}
+body.dashboard-fit .notam-panel{width:100%!important}
+body.dashboard-fit .quicklinks{grid-template-columns:repeat(6,minmax(0,1fr))!important;gap:8px!important}
+body.dashboard-fit .quicklinks button{min-height:58px!important}
