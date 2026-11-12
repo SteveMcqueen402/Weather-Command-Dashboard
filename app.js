@@ -462,7 +462,6 @@ function hazardItem(o,kind,full=false){
  }else if(raw){const snippet=document.createElement('span');snippet.className='hazard-snippet';snippet.textContent=raw.slice(0,130);item.append(snippet);}
  return item;
 }
-
 const advisoryNames={
  'FZLVL':'Freezing level','TURB-HI':'High-altitude turbulence',
  'TURB-LO':'Low-altitude turbulence','MT_OBSC':'Mountain obscuration',
@@ -477,7 +476,7 @@ function advisoryName(type){
 function advisoryZulu(value){
  if(value==null||value==='')return '';
  const numeric=Number(value);
- const d=(typeof value==='number'||(/^\\d{10}$/.test(String(value))))?
+ const d=(typeof value==='number'||(/^\d{10}$/.test(String(value))))?
  new Date(numeric*1000):new Date(value);
  return Number.isNaN(d.getTime())?'':String(d.getUTCHours()).padStart(2,'0')+String(d.getUTCMinut  const glance=document.createElement('span');
   glance.className='hazard-glance';
@@ -490,7 +489,7 @@ function advisoryZulu(value){
  return '';
 }
 function advisoryBrief(o,kind){
- const raw=rawHazard(o).replace(/\\s+/g,' ').trim();
+ const raw=rawHazard(o).replace(/\s+/g,' ').trim();
  const type=hazardTag(o);
  const name=kind==='convective'?'Thunderstorms':advisoryName(type||hazardLabel(o,kind));
  const level=o.level!=null&&Number.isFinite(Number(o.level))?'FL '+Number(o.level):'';
@@ -499,7 +498,7 @@ function advisoryBrief(o,kind){
  const timing=from&&to?from+'–'+to:from||to;
  const area=advisoryArea(o);
  const severity=firstValue(o,['severity','dueTo']);
- const signal=kind==='convective'?(raw.match(/\\b(?:EMBD|LINE|ISOL|SEV|TS|TORNADO|HAIL)\\b[^.;]{0,35}/i)?.[0]||''):
+ const signal=kind==='convective'?(raw.match(/\b(?:EMBD|LINE|ISOL|SEV|TS|TORNADO|HAIL)\b[^.;]{0,35}/i)?.[0]||''):
    (type==='FZLVL'||type==='fzlvl')?level:(severity&&typeof severity==='string'?severity:'');
  const result=[name,signal,area,timing].filter(Boolean).join(' · ');
  return result||raw.slice(0,115)||'Report details unavailable';
@@ -518,14 +517,7 @@ function renderHazard(kind,message){
   // retain the full structured metadata and original report text.
   const glance=document.createElement('span');
   glance.className='hazard-glance';
-  const label=hazardLabel(o,kind);
-  const raw=rawHazard(o).replace(/\s+/g,' ').trim();
-  const area=firstValue(o,['area','regions','region','location','locationRef','icaoId','station','id']);
-  const detail=raw&&raw.toUpperCase()!==label.toUpperCase()?raw:(area?String(area):'');
-  const areaText=area?String(area):'';
-  const signal=kind==='pirep'?[o.fltLvl&&'FL '+o.fltLvl,o.turbInten&&'Turb '+o.turbInten,o.iceInten&&'Ice '+o.iceInten].filter(Boolean).join(' · '):[o.validTimeFrom&&'Valid '+dateTime(o.validTimeFrom),o.validTimeTo&&'to '+dateTime(o.validTimeTo)].filter(Boolean).join(' ');
-  const reportSummary=[signal,areaText,detail].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(' · ');
-  const complete=[label,reportSummary].filter(Boolean).join(' · ');
+  const complete=advisoryBrief(o,kind);
   glance.textContent=complete;
   glance.title=complete;
   item.prepend(glance);
