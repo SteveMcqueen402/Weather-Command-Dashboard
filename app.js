@@ -427,14 +427,15 @@ function renderHazard(kind,message){
  const status=$('#'+kind+'-status');if(!holder||!status)return;
  holder.replaceChildren();
  const scope=kind==='pirep'?hazardState.scope.pireps:hazardState.scope.sigmets;
- status.textContent=message||((kind==='pirep'?'Within 200 NM · last 3 hours':'US-wide bulletins · verify area')+' · '+items.length+' reports');
+ status.textContent=message||((kind==='pirep'?'Near home · past 3 hours':'Wide-area bulletins · check coverage')+' · '+items.length+' reports');
  if(!items.length){const empty=document.createElement('span');empty.className='hazard-empty';empty.textContent=message?'Data unavailable or not confirmed':'No reports returned for this feed';holder.append(empty);return;}
  items.slice(0,2).forEach(o=>holder.append(hazardItem(o,kind)));
 }
 async function loadHazards(){
  try{
-  const d=await fetchJSON('/api/aviation-hazards?station='+encodeURIComponent(current.homeId));
-  if(d.station!==current.homeId&&d.station!=='K'+current.homeId)return;
+  const coords=homeCoords();
+  const d=await fetchJSON('/api/aviation-hazards?station='+encodeURIComponent(current.homeId)+'&lat='+encodeURIComponent(coords[0])+'&lon='+encodeURIComponent(coords[1]));
+  if(d.station!==current.homeId)return;
   hazardState.scope=d.scope||{};
   const p=d.feeds?.pireps,sg=d.feeds?.sigmets,ga=d.feeds?.gairmets;
   hazardState.pirep=p?.ok?p.items||[]:[];
@@ -445,7 +446,7 @@ async function loadHazards(){
     convective:sg?.ok?'':sg?.error||'Convective SIGMET feed unavailable'};
   for(const kind of ['pirep','sigmet','convective']){
    const error=hazardState.errors[kind];
-   renderHazard(kind,error?'Source unavailable: '+error:null);
+   renderHazard(kind,error?'NOAA feed error: '+error:null);
   }
  }catch(err){
   for(const kind of ['pirep','sigmet','convective']){hazardState[kind]=[];hazardState.errors[kind]=err.message;renderHazard(kind,'Unable to check feed: '+err.message)}
