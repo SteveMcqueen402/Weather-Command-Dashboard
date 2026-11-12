@@ -755,3 +755,47 @@ body.dashboard-fit .leftstack>.notam-panel{width:100%!important;height:max-conte
  .wall>.rightstack>.quicklinks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:7px!important}
  .wall>.rightstack>.quicklinks button{min-width:0;min-height:62px}
 }
+
+/* v3.5 AWC hazard reports replace the six unused navigation shortcuts. */
+.wall>.rightstack>.hazard-panels{
+ display:grid!important;grid-template-columns:minmax(0,1fr)!important;
+ grid-template-rows:repeat(3,minmax(110px,1fr))!important;
+ gap:9px!important;min-width:0;min-height:0;margin:0!important;align-self:stretch!important;
+}
+.hazard-panel{min-height:0!important;min-width:0;padding:10px 12px!important;display:flex;flex-direction:column;overflow:hidden}
+.hazard-panel .panelhead{margin-bottom:4px;flex-shrink:0}
+.hazard-panel .panelhead h2{font-size:12px;letter-spacing:.3px}
+.hazard-panel .hazard-status{font-size:10px;color:#85c7ed;line-height:1.35;margin:0 0 5px;flex-shrink:0}
+.hazard-panel .hazard-items{display:grid;grid-template-columns:minmax(0,1fr);align-content:start;gap:5px;min-height:0;overflow:auto}
+.hazard-item{background:#0a2235;border-left:3px solid #43b8e9;border-radius:5px;padding:6px 8px;display:grid;gap:2px;min-width:0}
+#sigmet-panel .hazard-item{border-left-color:#ffaf53}
+#convective-panel .hazard-item{border-left-color:#fe6e99}
+.hazard-item strong{font-size:11px;font-weight:780;color:#eaf5ff;overflow-wrap:anywhere}
+.hazard-meta,.hazard-snippet{color:#a3bad0;font-size:10px;line-height:1.4;overflow-wrap:anywhere}
+.hazard-snippet{color:#c4d9ea}
+.hazard-empty{font-size:11px;color:#91aabd;padding:8px 3px}
+.hazard-modal{display:grid;gap:9px;min-width:0}
+.hazard-modal .hazard-item{padding:12px}
+.hazard-modal .hazard-item strong{font-size:13px}
+.hazard-modal .hazard-raw{white-space:pre-wrap;overflow-wrap:anywhere;max-height:230px;overflow:auto;font-size:11px;background:#091827;padding:9px;border-radius:4px;color:#c8dce9}
+@media(min-width:1101px){
+ body:not(.free-layout-active) .wall>.rightstack,
+ body.dashboard-fit:not(.free-layout-active) .wall>.rightstack{
+  grid-template-rows:max-content max-content minmax(330px,1fr)!important;
+ }
+ body:not(.free-layout-active) .wall>.rightstack>.hazard-panels,
+ body.dashboard-fit:not(.free-layout-active) .wall>.rightstack>.hazard-panels{
+  display:grid!important;grid-template-columns:minmax(0,1fr)!important;
+  grid-template-rows:repeat(3,minmax(105px,1fr))!important;
+  min-height:330px!important;align-self:stretch!important;
+ }
+}
+@media(min-width:681px) and (max-width:1100px){
+ .wall>.rightstack>.hazard-panels{grid-template-columns:1fr!important;grid-template-rows:repeat(3,minmax(115px,auto))!important}
+}
+@media(max-width:680px){
+ .wall>.rightstack>.hazard-panels{width:100%;grid-template-columns:1fr!important;grid-template-rows:repeat(3,minmax(115px,auto))!important}
+ .hazard-panel{min-height:115px!important}
+}
+.free-layout-active .custom-board>.hazard-panel{display:flex;flex-direction:column}
+.free-layout-active .custom-board>.hazard-panel .hazard-items{flex:1 1 auto;overflow:auto}
