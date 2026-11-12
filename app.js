@@ -391,7 +391,81 @@ $('#quick-plan').onclick=()=>{
  $('#route-form').requestSubmit();
 };
 
-let refreshBusy=false;async function refresh(){if(refreshBusy)return;refreshBusy=true;text('#checked','Refreshing sources…');status('');try{await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadRadar(),loadLocationForecast(),loadWinds(),loadNotams(),...(current.route.length?[loadRouteWinds()]:[])]);text('#checked','Updated '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZoneName:'short'}))}finally{refreshBusy=false}}
+// Aviation Weather Center hazard displays. Feed errors are not interpreted as clear skies.
+const hazardState={pirep:[],sigmet:[],convective:[],errors:{},scope:{}};
+const firstValue=(o,keys)=>keys.map(k=>o?.[k]).find(v=>v!==undefined&&v!==null&&v!=='');
+const rawHazard=o=>String(firstValue(o,['rawOb','rawAirSigmet','rawSigmet','rawText','raw','text','rawAirmet'])||'').trim();
+const hazardTag=o=>String(firstValue(o,['hazard','hazardType','sigmetType','type','phenomenon','turbInten','iceInten'])||'').replace(/\[object Object\]/g,'').trim();
+const hazardTime=o=>firstValue(o,['obsTime','validTimeFrom','validTime','issueTime','receiptTime','time','forecastTime']);
+function hazardLabel(o,kind){
+ const raw=rawHazard(o),type=hazardTag(o);
+ if(kind==='pirep'){
+  const tags=[o.turbInten&&'TURB '+o.turbInten,o.iceInten&&'ICE '+o.iceInten,o.fltLvl&&'FL'+o.fltLvl].filter(Boolean);
+  return tags.join(' · ')||'Pilot weather report';
+ }
+ return type||(raw.match(/(?:CONVECTIVE SIGMET|SIGMET|AIRMET|G-AIRMET)\s+[A-Z0-9-]+/i)?.[0])||'Aviation advisory';
+}
+function hazardIsConvective(o){
+ const type=[o.sigmetType,o.hazard,o.hazardType,o.type,o.phenomenon,rawHazard(o).slice(0,250)].filter(Boolean).join(' ').toUpperCase();
+ return /CONVECTIVE|\bCONV\b|THUNDERSTORM|\bTS\b/.test(type);
+}
+function hazardItem(o,kind,full=false){
+ const item=document.createElement('div');item.className='hazard-item';
+ const title=document.createElement('strong');title.textContent=hazardLabel(o,kind);item.append(title);
+ const when=hazardTime(o);const raw=rawHazard(o);
+ const region=firstValue(o,['area','regions','region','location','locationRef','icaoId','station','id']);
+ const details=document.createElement('span');details.className='hazard-meta';
+ const parts=[region&&String(region),when&&dateTime(when),kind==='pirep'&&Number.isFinite(Number(o.lat))&&Number.isFinite(Number(o.lon))?Number(o.lat).toFixed(1)+'°, '+Number(o.lon).toFixed(1)+'°':null].filter(Boolean);
+ details.textContent=parts.join(' · ')||'See report details';item.append(details);
+ if(full){
+  const body=document.createElement('pre');body.className='hazard-raw';body.textContent=raw||JSON.stringify(o,null,2);item.append(body);
+ }else if(raw){const snippet=document.createElement('span');snippet.className='hazard-snippet';snippet.textContent=raw.slice(0,130);item.append(snippet);}
+ return item;
+}
+function renderHazard(kind,message){
+ const items=hazardState[kind],holder=$('#'+kind+'-items');
+ const status=$('#'+kind+'-status');if(!holder||!status)return;
+ holder.replaceChildren();
+ const scope=kind==='pirep'?hazardState.scope.pireps:hazardState.scope.sigmets;
+ status.textContent=message||((kind==='pirep'?'Within 200 NM · last 3 hours':'US-wide bulletins · verify area')+' · '+items.length+' reports');
+ if(!items.length){const empty=document.createElement('span');empty.className='hazard-empty';empty.textContent=message?'Data unavailable or not confirmed':'No reports returned for this feed';holder.append(empty);return;}
+ items.slice(0,2).forEach(o=>holder.append(hazardItem(o,kind)));
+}
+async function loadHazards(){
+ try{
+  const d=await fetchJSON('/api/aviation-hazards?station='+encodeURIComponent(current.homeId));
+  if(d.station!==current.homeId&&d.station!=='K'+current.homeId)return;
+  hazardState.scope=d.scope||{};
+  const p=d.feeds?.pireps,sg=d.feeds?.sigmets,ga=d.feeds?.gairmets;
+  hazardState.pirep=p?.ok?p.items||[]:[];
+  const sigmets=sg?.ok?sg.items||[]:[];
+  hazardState.convective=sigmets.filter(hazardIsConvective);
+  hazardState.sigmet=[...sigmets.filter(x=>!hazardIsConvective(x)),...(ga?.ok?ga.items||[]:[])];
+  hazardState.errors={pirep:p?.ok?'':p?.error||'PIREP feed unavailable',sigmet:(!sg?.ok?'SIGMET feed unavailable. ':'')+(!ga?.ok?'G-AIRMET feed unavailable.':''),
+    convective:sg?.ok?'':sg?.error||'Convective SIGMET feed unavailable'};
+  for(const kind of ['pirep','sigmet','convective']){
+   const error=hazardState.errors[kind];
+   renderHazard(kind,error?'Source unavailable: '+error:null);
+  }
+ }catch(err){
+  for(const kind of ['pirep','sigmet','convective']){hazardState[kind]=[];hazardState.errors[kind]=err.message;renderHazard(kind,'Unable to check feed: '+err.message)}
+ }
+}
+$('[data-hazard-expand]').forEach(button=>button.addEventListener('click',()=>{
+ const kind=button.dataset.hazardExpand;
+ const title={pirep:'Recent pilot reports',sigmet:'SIGMETs and G-AIRMETs (US-wide)',convective:'Convective SIGMETs (US-wide)'}[kind]||'Aviation hazards';
+ const box=document.createElement('div');box.className='hazard-modal';
+ const notice=document.createElement('p');notice.className='source-note';
+ notice.textContent=kind==='pirep'?'Reports within 200 NM of the home airport during the past 3 hours.':'National/wide-area bulletins. Display does NOT confirm an advisory affects your airport or route; verify the coverage and validity.';
+ box.append(notice);
+ if(hazardState.errors[kind]){const err=document.createElement('p');err.textContent=hazardState.errors[kind];box.append(err)}
+ const items=hazardState[kind]||[];
+ if(!items.length){const empty=document.createElement('p');empty.textContent='No reports available from this feed.';box.append(empty)}
+ items.slice(0,40).forEach(o=>box.append(hazardItem(o,kind,true)));
+ showModal(title,box,'https://aviationweather.gov/gfa/');
+}));
+
+let refreshBusy=false;async function refresh(){if(refreshBusy)return;refreshBusy=true;text('#checked','Refreshing sources…');status('');try{await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadRadar(),loadLocationForecast(),loadWinds(),loadNotams(),loadHazards(),...(current.route.length?[loadRouteWinds()]:[])]);text('#checked','Updated '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZoneName:'short'}))}finally{refreshBusy=false}}
 $('#refresh').onclick=refresh;
 // Independent live UTC/Zulu clock, 24-hour format with seconds. No network request required.
 function updateZuluClock(){
@@ -433,7 +507,7 @@ $('#home-airport-form').addEventListener('submit',async e=>{
   if(current.homeMarker)current.map.removeLayer(current.homeMarker);
   current.homeMarker=L.marker(homeCoords()).addTo(current.map).bindPopup(current.homeId+' · Home airport');
   if(!current.route.length)drawSmallRouteMap();
-  await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadLocationForecast(),loadWinds(),loadNotams()]);status('Home airport saved: '+id);
+  await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadLocationForecast(),loadWinds(),loadNotams(),loadHazards()]);status('Home airport saved: '+id);
  }catch(err){text('#home-airport-status','Unable to select: '+err.message);status(err.message)}finally{btn.disabled=false}
 });
 
@@ -650,7 +724,7 @@ $('#notam-expand').addEventListener('click',()=>{
   else rightStack.append(shortcuts);
  };
  if(!board||!toggle||!reset)return;
- const ids=['temp','dewpoint','wind','flightcat','notam-home-id','airport-section','wind-section','charts-section','route-section','forecast-section','notam-section'];
+ const ids=['temp','dewpoint','wind','flightcat','notam-home-id','airport-section','wind-section','charts-section','route-section','forecast-section','notam-section','pirep-panel','sigmet-panel','convective-panel'];
  const tiles=ids.slice(0,5).map(id=>document.getElementById(id)?.closest('.stat')).filter(Boolean);
  const details=ids.slice(5).map(id=>document.getElementById(id)).filter(Boolean);
  const nodes=[...tiles,...details];
