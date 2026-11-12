@@ -619,3 +619,39 @@ body.dashboard-fit .map-area{height:440px!important}
 body.dashboard-fit .notam-panel{width:100%!important}
 body.dashboard-fit .quicklinks{grid-template-columns:repeat(6,minmax(0,1fr))!important;gap:8px!important}
 body.dashboard-fit .quicklinks button{min-height:58px!important}
+
+/* v3.2 compact dashboard command strip; no unused navigation band */
+main{max-width:none;width:100%;padding-top:9px}
+.personalize{display:flex;flex-direction:column;align-items:stretch;gap:6px;margin-bottom:8px}
+.dashboard-utility-strip{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-width:0;padding:6px 9px;background:#0c1623;border:1px solid #213b53;border-radius:8px}
+.dashboard-utility-strip .identity{min-width:0;flex:0 1 auto;gap:7px}
+.dashboard-utility-strip .identity .aircraft{font-size:21px}
+.dashboard-utility-strip .identity strong{font-size:13px;letter-spacing:.5px}
+.dashboard-utility-strip .identity span{font-size:8px;letter-spacing:1.1px}
+.dashboard-utility-strip .topright{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:6px;margin-left:auto;width:auto;order:initial;min-width:0}
+.dashboard-utility-strip .topright button{padding:5px 8px!important;font-size:11px}
+.dashboard-utility-strip .alerts-chip{min-height:30px;max-width:185px}
+.dashboard-utility-strip .utc-clock{min-width:90px;padding:3px 8px}
+.dashboard-utility-strip .utc-value{font-size:13px}
+.dashboard-utility-strip .auto-refresh-control{font-size:10px}
+.dashboard-arrange-strip{display:flex;align-items:center;flex-wrap:wrap;gap:8px;width:100%;padding:1px 2px}
+.dashboard-arrange-strip .layout-hint{flex:0 1 auto}
+.dashboard-arrange-strip #layout-toggle{margin-left:auto}
+.dashboard-arrange-strip #layout-toggle,.dashboard-arrange-strip #layout-reset{padding:5px 9px;font-size:11px}
+@media(max-width:900px){
+ .dashboard-utility-strip{align-items:flex-start;flex-wrap:wrap}
+ .dashboard-utility-strip .topright{width:100%;justify-content:flex-start;margin:0}
+ .dashboard-arrange-strip .layout-hint{display:none}
+}
+@media(max-width:580px){
+ .dashboard-utility-strip{padding:6px}
+ .dashboard-utility-strip .topright{gap:4px}
+ .dashboard-utility-strip .topright button{font-size:10px;padding:5px!important}
+ .dashboard-utility-strip .alerts-chip{max-width:135px;font-size:10px!important}
+ .dashboard-utility-strip .utc-clock{min-width:78px}
+ .dashboard-utility-strip .utc-value{font-size:11px}
+ .dashboard-utility-strip .identity strong{font-size:12px}
+ .dashboard-arrange-strip #layout-state{max-width:45%;margin-right:0}
+}
+body.dashboard-fit .dashboard-utility-strip{padding:4px 8px}
+body.dashboard-fit .dashboard-arrange-strip{gap:5px}
