@@ -1528,3 +1528,54 @@ body.dashboard-fit #play-radar{display:none!important}
   font-size:clamp(18px,2.3vw,27px)!important;
  }
 }
+
+/* FBO overview: shrink controls, not data. Show errors without permanently
+   reserving a large empty banner or two extra text-field columns. */
+body.dashboard-fit:not(.card-focus-open) .locationbar{
+ display:flex!important;flex-wrap:nowrap!important;
+ min-height:0!important;gap:6px!important;align-items:center!important;
+}
+body.dashboard-fit:not(.card-focus-open) .home-airport-control{
+ flex:0 0 auto!important;min-width:0!important;
+ padding:4px 7px!important;gap:5px!important;
+}
+body.dashboard-fit:not(.card-focus-open) .home-airport-control #home-airport-status{
+ display:none!important;
+}
+body.dashboard-fit:not(.card-focus-open) #airport-search{
+ display:none!important;
+}
+body.dashboard-fit:not(.card-focus-open) .top-route{
+ flex:1 1 auto!important;min-width:0!important;
+ display:flex!important;align-items:center!important;gap:6px!important;
+ padding:4px 7px!important;
+}
+body.dashboard-fit:not(.card-focus-open) .top-route input{
+ width:clamp(75px,8vw,125px)!important;min-width:0!important;
+}
+body.dashboard-fit:not(.card-focus-open) .locationbar input,
+body.dashboard-fit:not(.card-focus-open) .locationbar button{
+ min-height:32px!important;padding:5px 8px!important;
+}
+body.dashboard-fit:not(.card-focus-open) #notice:empty{
+ display:none!important;
+}
+body.dashboard-fit:not(.card-focus-open) #notice:not(:empty){
+ padding:4px 9px!important;line-height:1.2!important;
+ max-height:42px!important;overflow:hidden!important;
+}
+body.dashboard-fit:not(.card-focus-open) .map-panel .panelhead{
+ padding-bottom:3px!important;margin-bottom:3px!important;
+}
+body.dashboard-fit:not(.card-focus-open) .map-panel .map-style-bar{
+ padding:3px 5px!important;
+}
+body.dashboard-fit:not(.card-focus-open) .map-panel .map-tabs{
+ gap:4px!important;margin:3px 0!important;
+}
+body.dashboard-fit:not(.card-focus-open) .map-panel .map-tabs .tab{
+ padding:5px 8px!important;
+}
+body.dashboard-fit:not(.card-focus-open) .hazard-panel .hazard-status{
+ max-height:20px!important;overflow:hidden!important;
+}
