@@ -990,3 +990,195 @@ body.dashboard-fit #forecast-section .forecast-days{margin-top:5px!important}
  body.dashboard-fit .map-panel .map-area{min-height:0!important}
  body.dashboard-fit .locationbar{padding:0!important}
 }
+
+/* v3.8 FBO information display: readable overview, no page/card scrollbars.
+   The full interactive route editor uses its own large overlay. */
+@media(min-width:1101px) and (min-height:701px){
+ body.dashboard-fit main{
+   box-sizing:border-box!important;
+   height:100dvh!important;
+   min-height:0!important;
+   max-height:100dvh!important;
+   overflow:hidden!important;
+ }
+ body.dashboard-fit .wall{
+   flex:1 1 0!important;
+   height:0!important;
+   min-height:0!important;
+   max-height:none!important;
+   grid-template-columns:minmax(0,1.45fr) minmax(0,1.42fr) minmax(0,1.8fr)!important;
+   gap:8px!important;
+ }
+ body.dashboard-fit .wall>.leftstack{
+   grid-template-rows:minmax(0,0.9fr) minmax(0,1.3fr) minmax(0,0.83fr)!important;
+ }
+ body.dashboard-fit .wall>.rightstack{
+   grid-template-rows:minmax(0,0.87fr) minmax(0,0.87fr) minmax(0,2.1fr)!important;
+ }
+ body.dashboard-fit .wall>.rightstack>.hazard-panels{
+   grid-template-rows:repeat(3,minmax(0,1fr))!important;
+   min-height:0!important;
+ }
+ body.dashboard-fit .wall>.map-panel{
+   min-height:0!important; height:100%!important;
+ }
+ body.dashboard-fit .wall>.map-panel .map-area{
+   min-height:0!important;flex:1 1 0!important;height:0!important;
+ }
+ body.dashboard-fit .wall .panel{
+   min-height:0!important;
+   padding:9px 11px!important;
+ }
+ body.dashboard-fit .wall .panelhead{margin-bottom:6px!important}
+ body.dashboard-fit .wall .panelhead h2{
+   font-size:clamp(15px,0.92vw,19px)!important;
+   line-height:1.2!important;
+ }
+ body.dashboard-fit .stats>.stat{min-height:74px!important}
+ body.dashboard-fit .stats .statvalue{
+   font-size:clamp(29px,2.2vw,44px)!important;
+   margin:2px 0!important;
+ }
+ body.dashboard-fit .stats .stathead{font-size:13px!important}
+ body.dashboard-fit .stats small{font-size:13px!important}
+ body.dashboard-fit .wall .fine,
+ body.dashboard-fit .wall .subtle{font-size:12px!important}
+ body.dashboard-fit #wind-section .wind-row{
+   padding:5px 4px!important;
+   font-size:15px!important;
+   line-height:1.3!important;
+ }
+ body.dashboard-fit #wind-section .wind-rows{
+   overflow:hidden!important;
+   max-height:none!important;
+ }
+ body.dashboard-fit #airport-section .aviation-body,
+ body.dashboard-fit #notam-section .notam-list,
+ body.dashboard-fit #route-section .route-leg-breakdown,
+ body.dashboard-fit #forecast-section .forecast-days,
+ body.dashboard-fit .hazard-panel .hazard-items{
+   overflow:hidden!important;
+ }
+ body.dashboard-fit #airport-section .aviation-body pre{
+   font-size:14px!important;
+   line-height:1.45!important;
+   max-height:none!important;
+   min-height:0!important;
+   overflow:hidden!important;
+ }
+ body.dashboard-fit #notam-section .notam-toolbar,
+ body.dashboard-fit #notam-section .notam-feed-status,
+ body.dashboard-fit #notam-section .notam-item{
+   font-size:13px!important;
+ }
+ body.dashboard-fit #route-section{display:flex!important;flex-direction:column!important}
+ body.dashboard-fit #route-section .route-current{
+   font-size:17px!important;font-weight:800!important;
+ }
+ body.dashboard-fit #route-section .route-numbers strong{
+   font-size:clamp(20px,1.3vw,27px)!important;
+ }
+ body.dashboard-fit #route-section .route-numbers small{
+   font-size:12px!important;
+ }
+ body.dashboard-fit #route-section .route-wind-summary{
+   font-size:13px!important;
+   line-height:1.3!important;
+ }
+ body.dashboard-fit #route-section .route-edit-trigger{
+   font-size:14px!important;padding:8px 12px!important;
+   font-weight:800!important;color:#eaf7ff!important;
+   background:#154261!important;
+ }
+ body.dashboard-fit #forecast-section .day{
+   min-width:0!important;padding:4px 2px!important;
+ }
+ body.dashboard-fit #forecast-section .day .temperature{font-size:18px!important}
+ body.dashboard-fit #forecast-section .day strong{font-size:12px!important}
+ body.dashboard-fit #forecast-section .day small{font-size:11px!important}
+ body.dashboard-fit .hazard-panel .hazard-status{
+   font-size:13px!important;line-height:1.25!important;
+ }
+ body.dashboard-fit .hazard-panel .hazard-item{
+   padding:6px 8px!important;
+ }
+ body.dashboard-fit .hazard-panel .hazard-item strong{
+   font-size:15px!important;
+ }
+ body.dashboard-fit .hazard-panel .hazard-meta{
+   font-size:13px!important;
+ }
+ body.dashboard-fit .hazard-panel .hazard-snippet{
+   display:none!important;
+ }
+ body.dashboard-fit .hazard-panel .hazard-items .hazard-item:nth-child(n+2){
+   display:none!important;
+ }
+ body.dashboard-fit .hazard-panel .hazard-items{
+   flex:1 1 0!important;min-height:0!important;
+ }
+ body.dashboard-fit .map-style-bar{
+   padding:5px!important;
+ }
+ body.dashboard-fit .map-control{
+   flex-shrink:0!important;
+ }
+ /* Less essential metadata can remain in expanded detail views. */
+ body.dashboard-fit #wind-section>.panel-link,
+ body.dashboard-fit #route-section>.fine,
+ body.dashboard-fit #forecast-section>.fine,
+ body.dashboard-fit #notam-section>.panel-link,
+ body.dashboard-fit #notam-section>.fine{
+   display:none!important;
+ }
+}
+/* Route editor must never be trapped inside a 140px-high summary card. */
+body.dashboard-fit.route-edit-open::before{
+ content:"";position:fixed;inset:0;z-index:9900;
+ background:rgba(0,5,11,.76);
+}
+body.dashboard-fit.route-edit-open #route-section{
+ position:fixed!important;
+ z-index:9901!important;
+ top:50%!important;left:50%!important;
+ transform:translate(-50%,-50%)!important;
+ width:min(960px,94vw)!important;
+ height:auto!important;max-height:94dvh!important;
+ padding:22px!important;
+ background:#121f2d!important;
+ box-shadow:0 14px 70px #000b!important;
+ border:2px solid #5fbbea!important;
+ overflow:auto!important;
+ display:flex!important;
+}
+body.dashboard-fit.route-edit-open #route-section .route-editor{
+ display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;
+ gap:10px!important;overflow:visible!important;
+ max-height:none!important;
+}
+body.dashboard-fit.route-edit-open #route-section .routefields{
+ display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;
+ gap:10px!important;
+}
+body.dashboard-fit.route-edit-open #route-section .route-editor>label{
+ grid-column:1/-1!important;
+}
+body.dashboard-fit.route-edit-open #route-section .route-editor>button[type="submit"]{
+ grid-column:1/-1!important;
+ font-size:17px!important;min-height:44px!important;
+}
+body.dashboard-fit.route-edit-open #route-section .route-editor label{
+ font-size:14px!important;
+}
+body.dashboard-fit.route-edit-open #route-section .route-editor input,
+body.dashboard-fit.route-edit-open #route-section .route-editor select{
+ font-size:16px!important;min-height:36px!important;
+}
+body.dashboard-fit.route-edit-open #route-section .route-edit-trigger{
+ color:#fff!important;background:#86452b!important;
+}
+@media(max-width:900px){
+ body.dashboard-fit.route-edit-open #route-section .route-editor{
+  grid-template-columns:1fr!important;
+ }
+}
