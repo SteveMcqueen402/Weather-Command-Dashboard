@@ -799,3 +799,90 @@ body.dashboard-fit .leftstack>.notam-panel{width:100%!important;height:max-conte
 }
 .free-layout-active .custom-board>.hazard-panel{display:flex;flex-direction:column}
 .free-layout-active .custom-board>.hazard-panel .hazard-items{flex:1 1 auto;overflow:auto}
+
+/* v3.6 - collision-free card editor. The old editor used overlapping absolute coordinates. */
+.free-layout-active .custom-board{
+ display:grid!important;grid-template-columns:repeat(12,minmax(0,1fr))!important;
+ grid-auto-flow:row!important;grid-auto-rows:auto!important;align-items:start!important;
+ gap:10px!important;min-height:0!important;overflow:visible!important;
+ position:relative!important;width:100%!important;margin:8px 0!important;
+}
+.free-layout-active .custom-board>.panel,
+.free-layout-active .custom-board>.stat{
+ display:flex!important;position:relative!important;flex-direction:column!important;
+ left:auto!important;top:auto!important;right:auto!important;bottom:auto!important;
+ width:auto!important;height:auto!important;max-width:none!important;min-width:0!important;
+ min-height:105px!important;grid-column:span var(--custom-span,3)!important;
+ grid-row:auto!important;transform:none!important;overflow:hidden!important;
+ touch-action:auto!important;padding:12px!important;
+}
+.free-layout-active .custom-board>.map-panel{display:flex!important}
+.free-layout-active .custom-board>.map-panel .map-area{height:380px!important;min-height:280px!important;flex:none!important}
+.free-layout-active .custom-board>.hazard-panel{min-height:150px!important}
+.free-layout-active .custom-board>.hazard-panel .hazard-items{max-height:180px;overflow:auto}
+.free-layout-active .custom-board>.notam-panel{min-height:120px!important;height:auto!important}
+.free-layout-active .custom-board>.stat{min-height:95px!important}
+.free-layout-active .custom-board .free-controls,.free-layout-active .custom-board .free-resize{display:none!important}
+.tile-controls{display:none!important;flex-wrap:wrap;gap:4px;margin-bottom:8px;align-items:center}
+.free-layout-editing .custom-board .tile-controls{display:flex!important}
+.tile-controls button{background:#15344d;border:1px solid #467490;color:#e0f3ff;
+ font-size:11px;border-radius:5px;padding:5px 8px;min-height:30px}
+.tile-controls button:hover{background:#1e658b}
+.free-layout-active .custom-board>.card-collapsed{min-height:60px!important;height:auto!important}
+.free-layout-active .custom-board>.card-collapsed>:not(.tile-controls):not(.panelhead):not(.stathead){display:none!important}
+.free-layout-active .custom-board>.card-collapsed .panelhead{margin:0!important}
+@media(max-width:1049px){
+ .free-layout-active .custom-board{grid-template-columns:repeat(6,minmax(0,1fr))!important}
+ .free-layout-active .custom-board>.panel,.free-layout-active .custom-board>.stat{grid-column:span min(var(--custom-span,3),6)!important}
+}
+@media(max-width:679px){
+ .free-layout-active .custom-board{grid-template-columns:minmax(0,1fr)!important}
+ .free-layout-active .custom-board>.panel,.free-layout-active .custom-board>.stat{grid-column:1/-1!important}
+}
+/* FBO wall-fit: use genuine screen dimensions, never shrink whole page to microscopic text. */
+body.dashboard-fit{height:100dvh!important;overflow:hidden!important}
+body.dashboard-fit main{height:100dvh!important;display:flex!important;flex-direction:column!important;
+ padding:7px 10px!important;gap:6px!important;max-width:none!important;width:100%!important;
+ overflow:hidden!important;transform:none!important}
+body.dashboard-fit .personalize{flex:0 0 auto!important;margin:0!important}
+body.dashboard-fit .dashboard-arrange-strip .layout-hint{display:none}
+body.dashboard-fit .locationbar{flex:0 0 auto!important;margin:0!important;min-height:0!important}
+body.dashboard-fit .stats{flex:0 0 auto!important;margin:0!important;gap:7px!important}
+body.dashboard-fit .stats>.stat{padding:9px 12px!important;min-height:82px!important}
+body.dashboard-fit .statvalue{font-size:26px!important}
+body.dashboard-fit footer{display:none!important}
+@media(min-width:1101px){
+ body.dashboard-fit:not(.free-layout-active) .wall{
+  flex:1 1 auto!important;height:auto!important;min-height:0!important;
+  grid-template-columns:minmax(235px,1fr) minmax(410px,2.15fr) minmax(290px,1.18fr)!important;
+  align-items:stretch!important;gap:8px!important;
+ }
+ body.dashboard-fit:not(.free-layout-active) .wall>.leftstack{
+  height:100%!important;min-height:0!important;align-self:stretch!important;
+  display:grid!important;grid-template-rows:minmax(130px,0.9fr) minmax(210px,1.3fr) minmax(150px,1fr)!important;
+  gap:8px!important;align-content:stretch!important;
+ }
+ body.dashboard-fit:not(.free-layout-active) .wall>.rightstack{
+  height:100%!important;min-height:0!important;
+  display:grid!important;grid-template-rows:minmax(155px,0.9fr) minmax(150px,0.9fr) minmax(300px,2.2fr)!important;
+  gap:8px!important;
+ }
+ body.dashboard-fit:not(.free-layout-active) .wall>.map-panel{height:100%!important;min-height:0!important}
+ body.dashboard-fit:not(.free-layout-active) .wall>.map-panel .map-area{height:auto!important;min-height:180px!important;flex:1 1 auto!important}
+ body.dashboard-fit:not(.free-layout-active) .leftstack>.panel{height:100%!important;min-height:0!important;overflow:hidden!important}
+ body.dashboard-fit:not(.free-layout-active) .leftstack>.notam-panel{height:100%!important;overflow:auto!important}
+ body.dashboard-fit:not(.free-layout-active) .wall>.rightstack>.hazard-panels{
+  min-height:0!important;height:100%!important;
+  grid-template-rows:repeat(3,minmax(0,1fr))!important;gap:7px!important
+ }
+ body.dashboard-fit:not(.free-layout-active) .hazard-panel{height:100%!important;min-height:0!important}
+ body.dashboard-fit:not(.free-layout-active) .hazard-panel .hazard-items{flex:1 1 auto!important;overflow:auto!important}
+ body.dashboard-fit:not(.free-layout-active) .wind-rows{max-height:100%!important;overflow:auto!important}
+ body.dashboard-fit:not(.free-layout-active) .panelhead h2{font-size:14px!important}
+ body.dashboard-fit:not(.free-layout-active) .hazard-item strong{font-size:12px!important}
+ body.dashboard-fit:not(.free-layout-active) .hazard-status,body.dashboard-fit:not(.free-layout-active) .hazard-meta{font-size:11px!important}
+}
+@media(max-width:1100px),(max-height:700px){
+ body.dashboard-fit{height:auto!important;min-height:100dvh!important;overflow-y:auto!important}
+ body.dashboard-fit main{height:auto!important;min-height:100dvh!important;overflow:visible!important}
+}
