@@ -162,7 +162,7 @@ function calculateRoute(){
   msg.classList.toggle('has-winds',Boolean(wind));
   if(!valid)msg.textContent='Enter a valid route, TAS and fuel burn to calculate travel time.';
   else if(impossible)msg.textContent='Selected wind exceeds the aircraft’s ability to maintain the course at this TAS. Adjust altitude, TAS, or forecast.';
-  else if(wind){const speed=Math.hypot(wind.east,wind.north);const toward=(Math.atan2(wind.east,wind.north)*180/Math.PI+360)%360;const from=(toward+180)%360;msg.textContent=`WIND-ADJUSTED · ${windStation()} · ${$('#route-wind-cycle').value}h · ${alt.toLocaleString()} ft MSL · ${speed.toFixed(0)} kt from ${Math.round(from).toString().padStart(3,'0')}° true · Avg ${(sum/hours).toFixed(0)} kt GS${wind.extrapolated?' · Nearest available altitude (extrapolation not used)':''}. Forecast ${routeWindState.report.header?.find(h=>/VALID/i.test(h))||'valid time: verify source'}.`}
+  else if(wind){const speed=Math.hypot(wind.east,wind.north);const toward=(Math.atan2(wind.east,wind.north)*180/Math.PI+360)%360;const from=(toward+180)%360;msg.textContent=`${routeWindState.report.modelGuidance?'MODEL WIND-ADJUSTED (GFS; not an official FB forecast)':'WIND-ADJUSTED (official FB)'} · ${windStation()} · ${$('#route-wind-cycle').value}h · ${alt.toLocaleString()} ft MSL · ${speed.toFixed(0)} kt from ${Math.round(from).toString().padStart(3,'0')}° true · Avg ${(sum/hours).toFixed(0)} kt GS${wind.extrapolated?' · Nearest available altitude (extrapolation not used)':''}. Forecast ${routeWindState.report.header?.find(h=>/VALID/i.test(h))||'valid time: verify source'}.`}
   else msg.textContent=`STILL-AIR ONLY · ${routeWindState.error||'No applicable winds-aloft forecast loaded'} · ${tas.toFixed(0)} kt TAS assumed as groundspeed. Wind correction not included.`;
  }
  return valid&&!impossible;
@@ -359,7 +359,7 @@ $$('[data-modal]').forEach(b=>b.addEventListener('click',()=>modalSection(b.data
 let lastWindReport=null;
 function windRowsToElement(report){
  const root=document.createElement('div');root.className='wind-detail';
- const metadata=document.createElement('p');metadata.className='source-note';metadata.textContent=`Station ${report.station} · ${report.fcst}h forecast · ${report.header?.join(' · ')||'Validity unavailable'}`;root.append(metadata);
+ const metadata=document.createElement('p');metadata.className='source-note';metadata.textContent=`${report.modelGuidance?'GFS MODEL GUIDANCE (not an official FB table)':'Official FB table'} · Station ${report.station} · ${report.fcst}h · ${report.header?.join(' · ')||'Validity unavailable'}`;root.append(metadata);
  for(const entry of report.rows||[]){
    const line=document.createElement('div');line.className='wind-row';
    const alt=document.createElement('span');alt.textContent=entry.altitude.toLocaleString('en-US')+' ft';
@@ -378,7 +378,7 @@ async function loadWinds(){
    lastWindReport=d;
    const host=$('#winds-rows');host.replaceChildren();
    if(!d.available){text('#winds-status',`No official FB winds table for ${station}. Select another forecast station.`);host.textContent='No station forecast available for this cycle.';return}
-   text('#winds-status',`${station} · ${fcst}h · ${d.header?.find(s=>/VALID/i.test(s))||'See official valid time'}`);
+   text('#winds-status',`${d.modelGuidance?'GFS MODEL GUIDANCE — NOT AN OFFICIAL FB FORECAST':'Official FB winds'} · ${station} · ${fcst}h · ${d.header?.find(s=>/VALID/i.test(s))||'See source valid time'}`);
    const el=windRowsToElement(d);const metadata=el.querySelector('.source-note');metadata.remove();
    while(el.firstChild)host.append(el.firstChild);
  }catch(err){lastWindReport=null;text('#winds-status','Official winds data unavailable: '+err.message);text('#winds-rows','Data unavailable — use AWC link below. No estimated winds are shown.');}
