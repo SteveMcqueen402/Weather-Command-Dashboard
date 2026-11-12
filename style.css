@@ -1326,22 +1326,46 @@ body.dashboard-fit.card-focus-open #route-section.focus-panel-active .route-edit
  grid-column:1/-1!important;min-height:44px!important;font-size:16px!important;
 }
 
-/* One prominent, touch-friendly expand control for the route planner. */
-#route-section .route-focus-button{
- display:inline-flex!important;align-items:center!important;justify-content:center!important;
- width:38px!important;height:38px!important;min-width:38px!important;min-height:38px!important;
- margin-left:auto!important;padding:0!important;
- border-radius:11px!important;
- border:1px solid #59caff!important;
- background:linear-gradient(145deg,#1769a5 0%,#123857 100%)!important;
- box-shadow:inset 0 1px 0 #a9e8ff40,0 3px 10px #0006!important;
- color:#ecfaff!important;font-size:24px!important;line-height:1!important;
- transition:transform .16s ease,background .16s ease,box-shadow .16s ease;
- cursor:pointer;touch-action:manipulation;
+
+/* Unified Weather Command panel expand icon — compact, technical, consistent. */
+.wall .panelhead > .panel-expand-control{
+ appearance:none!important;
+ display:inline-grid!important;
+ place-items:center!important;
+ flex:0 0 30px!important;
+ width:30px!important;
+ height:30px!important;
+ min-width:30px!important;
+ min-height:30px!important;
+ max-width:30px!important;
+ margin:0 0 0 auto!important;
+ padding:0!important;
+ border-radius:8px!important;
+ border:1px solid #3a83aa!important;
+ background:linear-gradient(140deg,#183c55 0%,#0b2133 72%)!important;
+ box-shadow:inset 0 1px 0 #78d8ff2e,0 2px 5px #0004!important;
+ color:#bceeff!important;
+ font-family:inherit!important;
+ font-size:18px!important;
+ font-weight:600!important;
+ line-height:1!important;
+ cursor:pointer;
+ touch-action:manipulation;
+ transition:background .15s ease,border-color .15s ease,
+            color .15s ease,box-shadow .15s ease,transform .15s ease;
 }
-#route-section .route-focus-button:hover,#route-section .route-focus-button:focus-visible{
- background:linear-gradient(145deg,#2998d4 0%,#155883 100%)!important;
- box-shadow:0 0 0 2px #66d2ff60,0 4px 12px #0009!important;
+.wall .panelhead > .panel-expand-control:hover,
+.wall .panelhead > .panel-expand-control:focus-visible{
+ color:#fff!important;
+ border-color:#63d2ff!important;
+ background:linear-gradient(140deg,#205777 0%,#10344b 72%)!important;
+ box-shadow:0 0 0 2px #40bfff26,inset 0 1px 0 #e4faff44!important;
  transform:translateY(-1px);
 }
-#route-section .route-focus-button:active{transform:scale(.95)}
+.wall .panelhead > .panel-expand-control:active{
+ transform:scale(.95);
+}
+body.dashboard-fit .wall .panelhead > .panel-expand-control{
+ width:30px!important;height:30px!important;
+ min-width:30px!important;min-height:30px!important;
+}

@@ -798,27 +798,21 @@ $('#notam-expand').addEventListener('click',()=>{
   const panel=document.getElementById(id);
   if(!panel)continue;
   const head=panel.querySelector(':scope > .panelhead');
-  if(head&&id==='route-section'){
-   const existing=head.querySelector('.chevron');
-   if(existing){
-    existing.classList.add('route-focus-button');
-    existing.title='Open route planner';
-    existing.setAttribute('aria-label','Open route planner full screen');
-    // The original button already opens route details outside Fit Screen.
-    // In Fit Screen this same button opens the interactive touch overlay.
-    existing.addEventListener('click',event=>{
-     if(!fitActive)return;
-     event.preventDefault();event.stopImmediatePropagation();
-     if(active===panel)close();else open(panel);
-    },true);
-   }
-  }else if(head){
-   const trigger=document.createElement('button');
-   trigger.type='button';trigger.className='focus-trigger';
-   trigger.textContent='⤢';trigger.title='Open full-size interactive card';
-   trigger.setAttribute('aria-label','Enlarge '+(head.querySelector('h2')?.textContent||'card'));
-   trigger.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if(active===panel)close();else open(panel)});
-   head.append(trigger);
+  // One existing expand button per panel, not a duplicated overlay control.
+  // Keep the panel's original detail action outside Fit Screen; in Fit Screen
+  // intercept the same click to bring the working card into touch focus.
+  const expand=head?.querySelector(':scope > .chevron');
+  if(expand){
+   expand.classList.add('panel-expand-control');
+   expand.title='Expand '+(head.querySelector('h2')?.textContent||'panel');
+   expand.setAttribute('aria-label','Expand '+(head.querySelector('h2')?.textContent||'panel'));
+   expand.addEventListener('click',event=>{
+    if(!fitActive)return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if(active===panel)close();
+    else open(panel);
+   },true);
   }
   panel.addEventListener('click',event=>{
    if(!fitActive||active===panel||event.target.closest('button,input,select,a,label,textarea,.leaflet-container'))return;
