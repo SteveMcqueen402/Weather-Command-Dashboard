@@ -464,6 +464,7 @@ function fitDashboard(){
  const width=Math.max(1180,window.innerWidth-16);
  main.style.width=width+'px';main.style.maxWidth='none';
  main.style.transform='none';
+ main.style.removeProperty('height'); // Re-measure actual content on every refresh or resize.
  const headerHeight=header?.getBoundingClientRect().height||0;
  const height=Math.max(100,window.innerHeight-headerHeight-8);
  const natural=Math.max(main.scrollHeight,main.offsetHeight,1);
