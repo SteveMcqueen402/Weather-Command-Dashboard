@@ -1752,3 +1752,21 @@ body.dashboard-fit:not(.card-focus-open) .rightstack .hazard-panel .hazard-glanc
  -webkit-line-clamp:2!important;-webkit-box-orient:vertical!important;
  line-height:1.2!important;
 }
+
+/* Narrow FBO hazard cards: three compact readable reports per card. */
+body.dashboard-fit:not(.card-focus-open) #convective-panel .hazard-items,
+body.dashboard-fit:not(.card-focus-open) #sigmet-panel .hazard-items{
+ grid-template-rows:repeat(3,minmax(0,1fr))!important;gap:2px!important;
+}
+body.dashboard-fit:not(.card-focus-open) #convective-panel .hazard-item:nth-child(n),
+body.dashboard-fit:not(.card-focus-open) #sigmet-panel .hazard-item:nth-child(n){
+ padding:2px 5px!important;min-height:0!important;
+}
+body.dashboard-fit:not(.card-focus-open) #convective-panel .hazard-glance,
+body.dashboard-fit:not(.card-focus-open) #sigmet-panel .hazard-glance{
+ font-size:clamp(11px,.73vw,13px)!important;
+ font-weight:600!important;line-height:1.18!important;
+ -webkit-line-clamp:2!important;
+ overflow-wrap:normal!important;
+ word-break:normal!important;
+}
