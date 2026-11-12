@@ -103,6 +103,44 @@ function parseWinds(raw,station){
 }
 
 
+// Fallback model guidance is distinct from the published FB tables.
+// Use only for locations whose station coordinates are explicitly known.
+const modelWindsStations={OMA:[41.3032,-95.8941],OFK:[41.9855,-97.4351],DSM:[41.534,-93.6631]};
+const modelWindsCache=new Map();
+async function readModelWinds(station,fcst){
+  const key=station+'/'+fcst,cached=modelWindsCache.get(key);
+  if(cached&&Date.now()-cached.at<900000)return cached.value;
+  const levels=[925,900,850,800,750,700,650,600,550,500,450,400];
+  const fields=levels.flatMap(p=>['wind_speed_'+p+'hPa','wind_direction_'+p+'hPa','geopotential_height_'+p+'hPa']);
+  const [lat,lon]=modelWindsStations[station];
+  const url='https://api.open-meteo.com/v1/gfs?latitude='+lat+'&longitude='+lon+
+    '&hourly='+encodeURIComponent(fields.join(','))+'&wind_speed_unit=kn&timezone=GMT&forecast_days=3';
+  const response=await fetch(url,{headers:{'User-Agent':'WeatherCommandDashboard/3.0 (forecast model guidance)'},signal:AbortSignal.timeout(14000)});
+  if(!response.ok)throw Error('GFS model provider HTTP '+response.status);
+  const hourly=(await response.json()).hourly;
+  if(!hourly?.time?.length)throw Error('No GFS forecast hours');
+  const target=Date.now()+Number(fcst)*3600000;
+  const idx=hourly.time.reduce((best,t,i)=>Math.abs(Date.parse(t+'Z')-target)<Math.abs(Date.parse(hourly.time[best]+'Z')-target)?i:best,0);
+  const points=levels.map(p=>({altitude:Number(hourly['geopotential_height_'+p+'hPa']?.[idx])*3.28084,
+    speed:Number(hourly['wind_speed_'+p+'hPa']?.[idx]),direction:Number(hourly['wind_direction_'+p+'hPa']?.[idx])}))
+    .filter(v=>Number.isFinite(v.altitude)&&Number.isFinite(v.speed)&&Number.isFinite(v.direction)).sort((a,b)=>a.altitude-b.altitude);
+  if(points.length<2)throw Error('GFS pressure-level wind data missing');
+  const rows=[3000,6000,9000,12000,18000].filter(ft=>ft>=points[0].altitude&&ft<=points.at(-1).altitude).map(altitude=>{
+    const i=points.findIndex(v=>v.altitude>=altitude);if(i<=0)return null;
+    const low=points[i-1],high=points[i],t=(altitude-low.altitude)/(high.altitude-low.altitude);
+    const vector=p=>({e:-p.speed*Math.sin(p.direction*Math.PI/180),n:-p.speed*Math.cos(p.direction*Math.PI/180)});
+    const a=vector(low),b=vector(high),e=a.e+(b.e-a.e)*t,n=a.n+(b.n-a.n)*t,speed=Math.hypot(e,n);
+    return {altitude,direction:Math.round((Math.atan2(-e,-n)*180/Math.PI+360)%360),
+      speed:Math.round(speed),tempC:null,calm:speed<1,raw:null};
+  }).filter(Boolean);
+  if(!rows.length)throw Error('GFS returned no usable flight-level winds');
+  const validAt=hourly.time[idx]+'Z';
+  const value={station,fcst,rows,levels:rows.map(x=>x.altitude),available:true,
+    header:['MODEL VALID '+validAt,'GFS guidance — NOT an official FB forecast'],
+    source:'Open-Meteo GFS model guidance',modelGuidance:true,validAt,retrievedAt:new Date().toISOString()};
+  modelWindsCache.set(key,{at:Date.now(),value});return value;
+}
+
 // Community airport communications/runway data. Cache whole source datasets for a day;
 // never present them as current FAA Chart Supplement or verified FBO/fuel data.
 const airportCsvCache=new Map();
@@ -288,13 +326,19 @@ const server=http.createServer(async(req,res)=>{
       if(!['06','12','24'].includes(fcst)||!/^[A-Z]{3}$/.test(station)){
         res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Invalid forecast hour or station'}));return;
       }
-      const report=await readWindTable(fcst);
-      const raw=report.text;
-      const parsed=parseWinds(raw,station);
-      const lines=raw.split(/\r?\n/).slice(0,12);
-      const header=lines.filter(x=>/DATA BASED|VALID|FOR USE|TEMPS NEG/i.test(x)).map(x=>x.trim());
+      let output;
+      try{
+        const report=await readWindTable(fcst);
+        const raw=report.text,parsed=parseWinds(raw,station);
+        if(!parsed.available||!parsed.rows.length)throw Error('Station '+station+' unavailable in legacy FB table');
+        const header=raw.split(/\r?\n/).slice(0,12).filter(x=>/DATA BASED|VALID|FOR USE|TEMPS NEG/i.test(x)).map(x=>x.trim());
+        output={...parsed,fcst,header,source:report.source+' · official FB winds/temperatures',retrievedAt:new Date().toISOString(),modelGuidance:false};
+      }catch(err){
+        if(!modelWindsStations[station])throw Error('Official winds unavailable for '+station+': '+err.message);
+        output=await readModelWinds(station,fcst);
+      }
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=300'});
-      res.end(JSON.stringify({...parsed,fcst,header,source:report.source+' · official FB winds/temperatures',retrievedAt:new Date().toISOString()}));return;
+      res.end(JSON.stringify(output));return;
     }
 
     if(u.pathname==='/api/airport-info'){
