@@ -469,7 +469,22 @@ function renderHazard(kind,message){
  const scope=kind==='pirep'?hazardState.scope.pireps:hazardState.scope.sigmets;
  status.textContent=message||((kind==='pirep'?'100 mi from home · past 3 hours':'Wide-area bulletins · check coverage')+' · '+items.length+' reports');
  if(!items.length){const empty=document.createElement('span');empty.className='hazard-empty';empty.textContent=message?'Data unavailable or not confirmed':'No reports returned for this feed';holder.append(empty);return;}
- items.slice(0,3).forEach(o=>holder.append(hazardItem(o,kind)));
+ items.slice(0,3).forEach(o=>{
+  const item=hazardItem(o,kind);
+  // The glance line is readable without opening a card; expanded reports
+  // retain the full structured metadata and original report text.
+  const glance=document.createElement('span');
+  glance.className='hazard-glance';
+  const label=hazardLabel(o,kind);
+  const raw=rawHazard(o).replace(/\s+/g,' ').trim();
+  const area=firstValue(o,['area','regions','region','location','locationRef','icaoId','station','id']);
+  const detail=raw&&raw.toUpperCase()!==label.toUpperCase()?raw:(area?String(area):'');
+  const complete=[label,detail].filter(Boolean).join(' · ');
+  glance.textContent=complete;
+  glance.title=complete;
+  item.prepend(glance);
+  holder.append(item);
+ });
 }
 async function loadHazards(){
  try{
