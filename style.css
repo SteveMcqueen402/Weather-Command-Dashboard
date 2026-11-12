@@ -833,7 +833,7 @@ body.dashboard-fit .leftstack>.notam-panel{width:100%!important;height:max-conte
 .free-layout-active .custom-board>.card-collapsed .panelhead{margin:0!important}
 @media(max-width:1049px){
  .free-layout-active .custom-board{grid-template-columns:repeat(6,minmax(0,1fr))!important}
- .free-layout-active .custom-board>.panel,.free-layout-active .custom-board>.stat{grid-column:span min(var(--custom-span,3),6)!important}
+ .free-layout-active .custom-board>.panel,.free-layout-active .custom-board>.stat{grid-column:span var(--custom-span,3)!important}
 }
 @media(max-width:679px){
  .free-layout-active .custom-board{grid-template-columns:minmax(0,1fr)!important}
@@ -885,4 +885,28 @@ body.dashboard-fit footer{display:none!important}
 @media(max-width:1100px),(max-height:700px){
  body.dashboard-fit{height:auto!important;min-height:100dvh!important;overflow-y:auto!important}
  body.dashboard-fit main{height:auto!important;min-height:100dvh!important;overflow:visible!important}
+}
+
+/* FBO legibility priorities: data first, configuration second. */
+body.dashboard-fit .statvalue{font-size:29px!important;line-height:1.1!important}
+body.dashboard-fit .stathead{font-size:11px!important}
+body.dashboard-fit .stats .stat small{font-size:12px!important}
+body.dashboard-fit .hazard-panel .panelhead h2{font-size:14px!important}
+body.dashboard-fit .hazard-panel .hazard-status{font-size:12px!important}
+body.dashboard-fit .hazard-item strong{font-size:13px!important}
+body.dashboard-fit .hazard-meta{font-size:12px!important}
+body.dashboard-fit .hazard-snippet{font-size:11px!important}
+body.dashboard-fit .dashboard-arrange-strip{display:none!important}
+body.dashboard-fit .locationbar{gap:6px!important}
+body.dashboard-fit .locationbar .top-route{max-width:420px}
+@media(min-width:1101px) and (max-height:950px){
+ body.dashboard-fit:not(.free-layout-active) .wall>.leftstack{
+  grid-template-rows:minmax(95px,0.85fr) minmax(165px,1.3fr) minmax(112px,0.9fr)!important}
+ body.dashboard-fit:not(.free-layout-active) .wall>.rightstack{
+  grid-template-rows:minmax(115px,0.8fr) minmax(108px,0.85fr) minmax(215px,2.1fr)!important}
+ body.dashboard-fit:not(.free-layout-active) .wall>.rightstack>.hazard-panels{
+  grid-template-rows:repeat(3,minmax(65px,1fr))!important;min-height:0!important}
+ body.dashboard-fit:not(.free-layout-active) .map-area{min-height:140px!important}
+ body.dashboard-fit .panel{padding:8px!important}
+ body.dashboard-fit .panelhead{margin-bottom:5px!important}
 }
