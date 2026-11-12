@@ -798,7 +798,21 @@ $('#notam-expand').addEventListener('click',()=>{
   const panel=document.getElementById(id);
   if(!panel)continue;
   const head=panel.querySelector(':scope > .panelhead');
-  if(head){
+  if(head&&id==='route-section'){
+   const existing=head.querySelector('.chevron');
+   if(existing){
+    existing.classList.add('route-focus-button');
+    existing.title='Open route planner';
+    existing.setAttribute('aria-label','Open route planner full screen');
+    // The original button already opens route details outside Fit Screen.
+    // In Fit Screen this same button opens the interactive touch overlay.
+    existing.addEventListener('click',event=>{
+     if(!fitActive)return;
+     event.preventDefault();event.stopImmediatePropagation();
+     if(active===panel)close();else open(panel);
+    },true);
+   }
+  }else if(head){
    const trigger=document.createElement('button');
    trigger.type='button';trigger.className='focus-trigger';
    trigger.textContent='⤢';trigger.title='Open full-size interactive card';
