@@ -553,7 +553,10 @@ function toggleFit(){
  const main=$('main');
  document.body.classList.toggle('dashboard-fit',fitActive);
  text('#fit-screen',fitActive?'⤢ Exit Fit':'⤢ Fit Screen');
- if(!fitActive){main.style.removeProperty('width');main.style.removeProperty('max-width');main.style.removeProperty('height');main.style.removeProperty('transform');main.style.removeProperty('transform-origin');delete main.dataset.fitScale;repairMobileMap();return}
+ if(!fitActive){
+  document.body.classList.remove('route-edit-open');
+  main.style.removeProperty('width');main.style.removeProperty('max-width');main.style.removeProperty('height');main.style.removeProperty('transform');main.style.removeProperty('transform-origin');delete main.dataset.fitScale;repairMobileMap();return
+ }
  fitDashboard();
 }
 $('#fit-screen').onclick=toggleFit;
@@ -603,6 +606,17 @@ if(routeToggle&&routeEditor){
    routeEditor.classList.toggle('is-collapsed',!opening);
    routeToggle.setAttribute('aria-expanded',String(opening));
    routeToggle.querySelector('span').textContent=opening?'▴':'▾';
+   // Fit Screen is a glanceable wall display. Editing is a dedicated overlay,
+   // not a clipped form or scrolling content squeezed inside the route card.
+   document.body.classList.toggle('route-edit-open',opening&&fitActive);
+ });
+ document.addEventListener('keydown',e=>{
+   if(e.key==='Escape'&&document.body.classList.contains('route-edit-open')){
+     document.body.classList.remove('route-edit-open');
+     routeEditor.classList.add('is-collapsed');
+     routeToggle.setAttribute('aria-expanded','false');
+     routeToggle.querySelector('span').textContent='▾';
+   }
  });
  routeEditor.addEventListener('submit',()=>{
    const from=document.getElementById('route-from').value.trim().toUpperCase();
@@ -748,4 +762,66 @@ $('#notam-expand').addEventListener('click',()=>{
  try{saved=localStorage.getItem(key)||'balanced'}catch{}
  activate(saved);
 })();
+// Touch-screen detail mode: no scrolling or tiny text on the overview.
+// Tap a card's background or its focus button to bring its existing live
+// controls into the foreground; moving no DOM nodes preserves all handlers.
+(function setupTouchCardFocus(){
+ const supported=['airport-section','wind-section','notam-section','charts-section',
+  'route-section','forecast-section','pirep-panel','sigmet-panel','convective-panel'];
+ let active=null;
+ const close=()=>{
+  if(!active)return;
+  active.classList.remove('focus-panel-active');
+  active=null;
+  document.body.classList.remove('card-focus-open','route-edit-open');
+  $('#route-form')?.classList.add('is-collapsed');
+  $('#toggle-route-edit')?.setAttribute('aria-expanded','false');
+  const arrow=$('#toggle-route-edit span');if(arrow)arrow.textContent='▾';
+  setTimeout(()=>{repairMobileMap();fitDashboard()},100);
+ };
+ const open=panel=>{
+  if(!fitActive||!panel)return;
+  if(active===panel)return;
+  if(active)active.classList.remove('focus-panel-active');
+  active=panel;
+  document.body.classList.add('card-focus-open');
+  panel.classList.add('focus-panel-active');
+  if(panel.id==='route-section'){
+   const editor=$('#route-form');
+   editor?.classList.remove('is-collapsed');
+   $('#toggle-route-edit')?.setAttribute('aria-expanded','true');
+   const arrow=$('#toggle-route-edit span');if(arrow)arrow.textContent='▴';
+  }
+  setTimeout(()=>{repairMobileMap();fitDashboard()},100);
+ };
+ for(const id of supported){
+  const panel=document.getElementById(id);
+  if(!panel)continue;
+  const head=panel.querySelector(':scope > .panelhead');
+  if(head){
+   const trigger=document.createElement('button');
+   trigger.type='button';trigger.className='focus-trigger';
+   trigger.textContent='⤢';trigger.title='Open full-size interactive card';
+   trigger.setAttribute('aria-label','Enlarge '+(head.querySelector('h2')?.textContent||'card'));
+   trigger.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if(active===panel)close();else open(panel)});
+   head.append(trigger);
+  }
+  panel.addEventListener('click',event=>{
+   if(!fitActive||active===panel||event.target.closest('button,input,select,a,label,textarea,.leaflet-container'))return;
+   open(panel);
+  });
+ }
+ // A button outside the panel closes detail mode without requiring a mouse.
+ const exit=document.createElement('button');
+ exit.type='button';exit.className='focus-close';exit.textContent='✕ Close';
+ exit.setAttribute('aria-label','Close expanded card');
+ exit.addEventListener('click',close);
+ document.body.append(exit);
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&active){e.preventDefault();close()}});
+ document.addEventListener('pointerdown',e=>{
+  if(active&&e.target.closest('.focus-panel-active,.focus-close')===null)close();
+ });
+ $('#fit-screen')?.addEventListener('click',()=>{if(active)close()});
+})();
+
 $('#radar-quality')?.addEventListener('change',()=>{if(current.map&&$('.tab.active')?.dataset.map==='radar')transitionRadar(current.map,'mapLayer');});
