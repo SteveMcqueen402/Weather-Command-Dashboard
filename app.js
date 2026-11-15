@@ -434,7 +434,7 @@ async function loadWinds(){
    rows.querySelector('.source-note')?.remove();
    while(rows.firstChild)host.append(rows.firstChild);
    const time=report.header?.find(s=>/VALID/i.test(s))||'Forecast valid time unavailable';
-   text('#winds-status',(report.modelGuidance?'GFS MODEL WINDS':'OFFICIAL FB WINDS')+' · '+station+' · '+fcst+'h · '+time);
+   text('#winds-status',(report.stale?'PREVIOUS FORECAST (UPDATE UNAVAILABLE)':report.modelGuidance?'GFS MODEL GUIDANCE':'OFFICIAL FB WINDS')+' · '+station+' · '+fcst+'h · '+time);
  }catch(err){
    if(request!==windLoadRequest)return;
    lastWindReport=null;
@@ -442,7 +442,7 @@ async function loadWinds(){
    host.replaceChildren();
    const message=document.createElement('div');
    message.className='wind-unavailable';
-   message.textContent='Unable to load forecast. Tap Go to retry or select OFK / DSM.';
+   message.textContent=/429|rate.limit/i.test(err.message)?'Provider temporarily rate limited. Automatic updates will retry; no forecast values invented.':'Forecast unavailable. Select another reporting station or use AWC Winds.';
    host.append(message);
  }
 }
