@@ -15,6 +15,8 @@ async function upstream(url,ttl=60000){
 // AWC publishes legacy FB winds/temperatures as fixed-width/text station rows.
 // This endpoint is distinct from the JSON METAR/TAF endpoints.
 const windTableCache=new Map();
+const windTablePending=new Map();
+const windTableRetryAfter=new Map();
 function validWindTable(text){
   // Check actual forecast rows, not just a single rigid header spelling.
   return /\bFT\s+3000\s+6000\s+9000\b/i.test(text) &&
@@ -35,37 +37,38 @@ function decodeNwsProductHtml(html){
 }
 async function readWindTable(fcst){
   const existing=windTableCache.get(fcst);
-  if(existing&&Date.now()-existing.at<900000)return existing;
-  // AWC is the preferred official publisher; weather.gov offers the official
-  // FD1/FD2/FD3 NWS text products as an independent fallback.
-  const product={'06':'FD1','12':'FD2','24':'FD3'}[fcst];
-  const sources=[
-    {name:'NOAA Aviation Weather Center / Central US',url:`https://aviationweather.gov/api/data/windtemp?region=chi&level=low&fcst=${fcst}`,html:false},
-    {name:'NOAA Aviation Weather Center / US',url:`https://aviationweather.gov/api/data/windtemp?region=us&level=low&fcst=${fcst}`,html:false},
-    {name:'NWS FD forecast text',url:`https://forecast.weather.gov/product.php?site=NWS&issuedby=US1&product=${product}&format=TXT`,html:true}
-  ];
-  // Fetch independent NOAA/NWS sources concurrently. Previously three
-  // sequential 14-second timeouts could delay the first useful reading 42s.
-  // Accept only a validated published FB table; the separate model fallback
-  // remains explicitly labeled as forecast guidance.
-  let report;
-  try{
-    report=await Promise.any(sources.map(async source=>{
-      const response=await fetch(source.url,{headers:{
-        'User-Agent':'WeatherCommandDashboard/3.11 (aviation planning)',
-        'Accept':source.html?'text/html,text/plain':'text/plain'
-      },signal:AbortSignal.timeout(11000)});
-      if(!response.ok)throw Error(source.name+': HTTP '+response.status);
-      const body=await response.text();
-      const value=source.html?decodeNwsProductHtml(body):body;
-      if(!validWindTable(value))throw Error(source.name+': no recognized FB table');
-      return {text:value,source:source.name,at:Date.now()};
-    }));
-  }catch{
-    throw Error('Published FB forecasts unavailable from NOAA/NWS (source timeout or invalid response)');
-  }
-  windTableCache.set(fcst,report);
-  return report;
+  if(existing&&Date.now()-existing.at<2*3600000)return existing;
+  // Legacy CONUS FB wind/temp tables were discontinued by NOAA. Don't
+  // repeatedly request retired sources on each 3-minute wall refresh.
+  if(Date.now()<(windTableRetryAfter.get(fcst)||0))throw Error('Legacy CONUS FB wind tables discontinued');
+  if(windTablePending.has(fcst))return windTablePending.get(fcst);
+  const pending=(async()=>{
+    const product={'06':'FD1','12':'FD2','24':'FD3'}[fcst];
+    const sources=[
+      {name:'NOAA Aviation Weather Center / Central US',url:`https://aviationweather.gov/api/data/windtemp?region=chi&level=low&fcst=${fcst}`,html:false},
+      {name:'NWS FD forecast text',url:`https://forecast.weather.gov/product.php?site=NWS&issuedby=US1&product=${product}&format=TXT`,html:true}
+    ];
+    try{
+      const report=await Promise.any(sources.map(async source=>{
+        const response=await fetch(source.url,{headers:{
+          'User-Agent':'WeatherCommandDashboard/3.12 (aviation planning)',
+          'Accept':source.html?'text/html,text/plain':'text/plain'
+        },signal:AbortSignal.timeout(9000)});
+        if(!response.ok)throw Error(source.name+': HTTP '+response.status);
+        const body=await response.text();
+        const value=source.html?decodeNwsProductHtml(body):body;
+        if(!validWindTable(value))throw Error('No published FB table at '+source.name);
+        return {text:value,source:source.name,at:Date.now()};
+      }));
+      windTableCache.set(fcst,report);
+      return report;
+    }catch{
+      windTableRetryAfter.set(fcst,Date.now()+6*3600000);
+      throw Error('Legacy CONUS FB winds not available from NOAA/NWS');
+    }
+  })();
+  windTablePending.set(fcst,pending);
+  try{return await pending}finally{windTablePending.delete(fcst)}
 }
 function decodeFB(code,altitude){
   if(!/^\d{4}(?:[+-]\d{2}|\d{2})?$/.test(code))return null;
@@ -117,40 +120,75 @@ function parseWinds(raw,station){
 // Use only for locations whose station coordinates are explicitly known.
 const modelWindsStations={OMA:[41.3032,-95.8941],OFK:[41.9855,-97.4351],DSM:[41.534,-93.6631]};
 const modelWindsCache=new Map();
+const modelWindsPending=new Map();
+let modelProviderRetryAfter=0;
 async function readModelWinds(station,fcst){
-  const key=station+'/'+fcst,cached=modelWindsCache.get(key);
-  if(cached&&Date.now()-cached.at<900000)return cached.value;
-  const levels=[925,900,850,800,750,700,650,600,550,500,450,400];
-  const fields=levels.flatMap(p=>['wind_speed_'+p+'hPa','wind_direction_'+p+'hPa','geopotential_height_'+p+'hPa']);
-  const [lat,lon]=modelWindsStations[station];
-  const url='https://api.open-meteo.com/v1/gfs?latitude='+lat+'&longitude='+lon+
-    '&hourly='+encodeURIComponent(fields.join(','))+'&wind_speed_unit=kn&timezone=GMT&forecast_days=3';
-  const response=await fetch(url,{headers:{'User-Agent':'WeatherCommandDashboard/3.0 (forecast model guidance)'},signal:AbortSignal.timeout(14000)});
-  if(!response.ok)throw Error('GFS model provider HTTP '+response.status);
-  const hourly=(await response.json()).hourly;
-  if(!hourly?.time?.length)throw Error('No GFS forecast hours');
-  const target=Date.now()+Number(fcst)*3600000;
-  const idx=hourly.time.reduce((best,t,i)=>Math.abs(Date.parse(t+'Z')-target)<Math.abs(Date.parse(hourly.time[best]+'Z')-target)?i:best,0);
-  const points=levels.map(p=>({altitude:Number(hourly['geopotential_height_'+p+'hPa']?.[idx])*3.28084,
-    speed:Number(hourly['wind_speed_'+p+'hPa']?.[idx]),direction:Number(hourly['wind_direction_'+p+'hPa']?.[idx])}))
-    .filter(v=>Number.isFinite(v.altitude)&&Number.isFinite(v.speed)&&Number.isFinite(v.direction)).sort((a,b)=>a.altitude-b.altitude);
-  if(points.length<2)throw Error('GFS pressure-level wind data missing');
-  const rows=[3000,6000,9000,12000,18000].filter(ft=>ft>=points[0].altitude&&ft<=points.at(-1).altitude).map(altitude=>{
-    const i=points.findIndex(v=>v.altitude>=altitude);if(i<=0)return null;
-    const low=points[i-1],high=points[i],t=(altitude-low.altitude)/(high.altitude-low.altitude);
-    const vector=p=>({e:-p.speed*Math.sin(p.direction*Math.PI/180),n:-p.speed*Math.cos(p.direction*Math.PI/180)});
-    const a=vector(low),b=vector(high),e=a.e+(b.e-a.e)*t,n=a.n+(b.n-a.n)*t,speed=Math.hypot(e,n);
-    return {altitude,direction:Math.round((Math.atan2(-e,-n)*180/Math.PI+360)%360),
-      speed:Math.round(speed),tempC:null,calm:speed<1,raw:null};
-  }).filter(Boolean);
-  if(!rows.length)throw Error('GFS returned no usable flight-level winds');
-  const validAt=hourly.time[idx]+'Z';
-  const value={station,fcst,rows,levels:rows.map(x=>x.altitude),available:true,
-    header:['MODEL VALID '+validAt,'GFS guidance — NOT an official FB forecast'],
-    source:'Open-Meteo GFS model guidance',modelGuidance:true,validAt,retrievedAt:new Date().toISOString()};
-  modelWindsCache.set(key,{at:Date.now(),value});return value;
+  const key=station+'/'+fcst,old=modelWindsCache.get(key);
+  const age=old?Date.now()-old.at:Infinity;
+  if(old&&age<75*60000)return old.value;
+  // When the provider answers HTTP 429, share a single retry window across
+  // ALL airports and all wall displays on this server. Otherwise the automatic
+  // three-minute refresh unintentionally worsens the provider's rate limit.
+  if(Date.now()<modelProviderRetryAfter){
+    if(old&&age<9*3600000)return {...old.value,stale:true,
+      header:['PREVIOUS MODEL FORECAST — PROVIDER TEMPORARILY RATE LIMITED',...old.value.header]};
+    throw Error('GFS forecast provider rate-limited (HTTP 429). Automatic retry after '+new Date(modelProviderRetryAfter).toISOString());
+  }
+  if(modelWindsPending.has(key))return modelWindsPending.get(key);
+  const pending=(async()=>{
+    // Limit request size; pressure-level height is required to interpolate
+    // winds to actual MSL altitudes without inventing an altitude conversion.
+    const levels=[925,900,850,800,700,600,500];
+    const fields=levels.flatMap(p=>['wind_speed_'+p+'hPa','wind_direction_'+p+'hPa','geopotential_height_'+p+'hPa']);
+    const [lat,lon]=modelWindsStations[station];
+    const url='https://api.open-meteo.com/v1/gfs?latitude='+lat+'&longitude='+lon+
+      '&hourly='+encodeURIComponent(fields.join(','))+'&wind_speed_unit=kn&timezone=GMT&forecast_days=2';
+    try{
+      const response=await fetch(url,{headers:{'User-Agent':'WeatherCommandDashboard/3.12 (forecast model guidance)'},signal:AbortSignal.timeout(14000)});
+      if(response.status===429){
+        const retry=Number(response.headers.get('retry-after'));
+        modelProviderRetryAfter=Date.now()+(Number.isFinite(retry)&&retry>0?Math.min(retry*1000,6*3600000):45*60000);
+        throw Error('GFS forecast provider HTTP 429 (rate limited)');
+      }
+      if(!response.ok)throw Error('GFS model provider HTTP '+response.status);
+      const hourly=(await response.json()).hourly;
+      if(!hourly?.time?.length)throw Error('No model forecast hours returned');
+      const target=Date.now()+Number(fcst)*3600000;
+      const idx=hourly.time.reduce((best,t,i)=>Math.abs(Date.parse(t+'Z')-target)<Math.abs(Date.parse(hourly.time[best]+'Z')-target)?i:best,0);
+      const points=levels.map(p=>({altitude:Number(hourly['geopotential_height_'+p+'hPa']?.[idx])*3.28084,
+        speed:Number(hourly['wind_speed_'+p+'hPa']?.[idx]),direction:Number(hourly['wind_direction_'+p+'hPa']?.[idx])}))
+        .filter(v=>Number.isFinite(v.altitude)&&Number.isFinite(v.speed)&&Number.isFinite(v.direction))
+        .sort((a,b)=>a.altitude-b.altitude);
+      if(points.length<2)throw Error('Model wind pressure levels unavailable');
+      const rows=[3000,6000,9000,12000,18000]
+        .filter(ft=>ft>=points[0].altitude&&ft<=points.at(-1).altitude).map(altitude=>{
+          const i=points.findIndex(v=>v.altitude>=altitude);
+          if(i<=0)return null;
+          const low=points[i-1],high=points[i],t=(altitude-low.altitude)/(high.altitude-low.altitude);
+          const vector=p=>({e:-p.speed*Math.sin(p.direction*Math.PI/180),
+            n:-p.speed*Math.cos(p.direction*Math.PI/180)});
+          const a=vector(low),b=vector(high);
+          const east=a.e+(b.e-a.e)*t,north=a.n+(b.n-a.n)*t,speed=Math.hypot(east,north);
+          return {altitude,direction:Math.round((Math.atan2(-east,-north)*180/Math.PI+360)%360),
+            speed:Math.round(speed),tempC:null,calm:speed<1,raw:null};
+        }).filter(Boolean);
+      if(!rows.length)throw Error('No model wind data for selectable flight levels');
+      const validAt=hourly.time[idx]+'Z';
+      const value={station,fcst,rows,levels:rows.map(x=>x.altitude),available:true,
+        header:['MODEL VALID '+validAt,'GFS guidance — NOT an official FB forecast'],
+        source:'Open-Meteo GFS model guidance',modelGuidance:true,validAt,
+        retrievedAt:new Date().toISOString()};
+      modelWindsCache.set(key,{at:Date.now(),value});
+      return value;
+    }catch(err){
+      if(old&&age<9*3600000)return {...old.value,stale:true,
+        header:['PREVIOUS MODEL FORECAST — CURRENT UPDATE UNAVAILABLE',...old.value.header]};
+      throw err;
+    }
+  })();
+  modelWindsPending.set(key,pending);
+  try{return await pending}finally{modelWindsPending.delete(key)}
 }
-
 // Community airport communications/runway data. Cache whole source datasets for a day;
 // never present them as current FAA Chart Supplement or verified FBO/fuel data.
 const airportCsvCache=new Map();
