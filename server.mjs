@@ -44,19 +44,28 @@ async function readWindTable(fcst){
     {name:'NOAA Aviation Weather Center / US',url:`https://aviationweather.gov/api/data/windtemp?region=us&level=low&fcst=${fcst}`,html:false},
     {name:'NWS FD forecast text',url:`https://forecast.weather.gov/product.php?site=NWS&issuedby=US1&product=${product}&format=TXT`,html:true}
   ];
-  const failures=[];
-  for(const source of sources){
-    try{
-      const response=await fetch(source.url,{headers:{'User-Agent':'WeatherCommandDashboard/2.1 (aviation planning)','Accept':source.html?'text/html,text/plain':'text/plain'},signal:AbortSignal.timeout(14000)});
-      if(!response.ok)throw Error(`HTTP ${response.status}`);
+  // Fetch independent NOAA/NWS sources concurrently. Previously three
+  // sequential 14-second timeouts could delay the first useful reading 42s.
+  // Accept only a validated published FB table; the separate model fallback
+  // remains explicitly labeled as forecast guidance.
+  let report;
+  try{
+    report=await Promise.any(sources.map(async source=>{
+      const response=await fetch(source.url,{headers:{
+        'User-Agent':'WeatherCommandDashboard/3.11 (aviation planning)',
+        'Accept':source.html?'text/html,text/plain':'text/plain'
+      },signal:AbortSignal.timeout(11000)});
+      if(!response.ok)throw Error(source.name+': HTTP '+response.status);
       const body=await response.text();
-      const text=source.html?decodeNwsProductHtml(body):body;
-      if(!validWindTable(text))throw Error('response contained no recognized official FB table');
-      const item={text,source:source.name,at:Date.now()};
-      windTableCache.set(fcst,item);return item;
-    }catch(err){failures.push(`${source.name}: ${err.message}`);}
+      const value=source.html?decodeNwsProductHtml(body):body;
+      if(!validWindTable(value))throw Error(source.name+': no recognized FB table');
+      return {text:value,source:source.name,at:Date.now()};
+    }));
+  }catch{
+    throw Error('Published FB forecasts unavailable from NOAA/NWS (source timeout or invalid response)');
   }
-  throw Error('Official winds/temperature forecasts currently unavailable from AWC and NWS. '+failures.join('; '));
+  windTableCache.set(fcst,report);
+  return report;
 }
 function decodeFB(code,altitude){
   if(!/^\d{4}(?:[+-]\d{2}|\d{2})?$/.test(code))return null;

@@ -410,18 +410,41 @@ function windRowsToElement(report){
  }
  return root;
 }
+let windLoadRequest=0;
 async function loadWinds(){
- const fcst=$('#wind-cycle').value,station=$('#wind-station').value.trim().toUpperCase().replace(/^K(?=[A-Z]{3}$)/,'');$('#wind-station').value=station;if(!/^[A-Z]{3}$/.test(station)){text('#winds-status',/^[A-Z0-9]{3,4}$/.test(station)?`${station} is an airport identifier, not an FB winds-aloft forecast station. Enter an official 3-letter winds station (e.g. OMA, OFK, DSM); do not prefix numeric identifiers with K.`:'Enter an official 3-letter winds/temperatures forecast station (e.g. OMA, OFK, DSM).');text('#winds-rows','Winds aloft are published for designated forecast stations, not every airport.');return;}
- text('#winds-status',`Loading ${station} · ${fcst}-hour forecast…`);
+ const request=++windLoadRequest;
+ const fcst=$('#wind-cycle').value;
+ const station=$('#wind-station').value.trim().toUpperCase().replace(/^K(?=[A-Z]{3}$)/,'');
+ $('#wind-station').value=station;
+ const host=$('#winds-rows');
+ if(!/^[A-Z]{3}$/.test(station)){
+   lastWindReport=null;
+   text('#winds-status','Enter a 3-letter winds forecast station, such as OMA, OFK or DSM.');
+   host.replaceChildren();host.textContent='Select a published winds station.';return;
+ }
+ text('#winds-status',station+' · '+fcst+'h · Loading winds…');
  try{
-   const d=await fetchJSON(`/api/winds-aloft?fcst=${encodeURIComponent(fcst)}&station=${encodeURIComponent(station)}`);
-   lastWindReport=d;
-   const host=$('#winds-rows');host.replaceChildren();
-   if(!d.available){text('#winds-status',`No official FB winds table for ${station}. Select another forecast station.`);host.textContent='No station forecast available for this cycle.';return}
-   text('#winds-status',`${d.modelGuidance?'GFS MODEL GUIDANCE — NOT AN OFFICIAL FB FORECAST':'Official FB winds'} · ${station} · ${fcst}h · ${d.header?.find(s=>/VALID/i.test(s))||'See source valid time'}`);
-   const el=windRowsToElement(d);const metadata=el.querySelector('.source-note');metadata.remove();
-   while(el.firstChild)host.append(el.firstChild);
- }catch(err){lastWindReport=null;text('#winds-status','Official winds data unavailable: '+err.message);text('#winds-rows','Data unavailable — use AWC link below. No estimated winds are shown.');}
+   const report=await fetchJSON('/api/winds-aloft?fcst='+encodeURIComponent(fcst)+'&station='+encodeURIComponent(station));
+   if(request!==windLoadRequest)return;
+   if(!report.available||!Array.isArray(report.rows)||!report.rows.length)
+     throw Error('No wind levels returned for '+station+'; select another station');
+   lastWindReport=report;
+   host.replaceChildren();
+   const rows=windRowsToElement(report);
+   rows.querySelector('.source-note')?.remove();
+   while(rows.firstChild)host.append(rows.firstChild);
+   const time=report.header?.find(s=>/VALID/i.test(s))||'Forecast valid time unavailable';
+   text('#winds-status',(report.modelGuidance?'GFS MODEL WINDS':'OFFICIAL FB WINDS')+' · '+station+' · '+fcst+'h · '+time);
+ }catch(err){
+   if(request!==windLoadRequest)return;
+   lastWindReport=null;
+   text('#winds-status','Winds unavailable · '+station+' · '+err.message);
+   host.replaceChildren();
+   const message=document.createElement('div');
+   message.className='wind-unavailable';
+   message.textContent='Unable to load forecast. Tap Go to retry or select OFK / DSM.';
+   host.append(message);
+ }
 }
 $('#wind-cycle').onchange=loadWinds;$('#wind-station').addEventListener('change',loadWinds);$('#wind-station').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();loadWinds()}});$('#wind-station-go').onclick=loadWinds;$('#wind-station').addEventListener('input',()=>{$('#wind-station').dataset.userSelected='true'});
 $('#quick-plan').onclick=()=>{
