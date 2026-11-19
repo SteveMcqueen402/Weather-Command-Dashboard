@@ -848,7 +848,7 @@ async function loadNotams(page=1){
    notamLastCheck=data.checkedAt;text('#notam-checked',(data.cached?'Cached · last checked ':'Checked ')+dateTime(data.checkedAt));
    const testing=data.environment==='test';
    text('#notam-home-id',testing?'TEST':String(data.total));text('#notam-summary',airport+(testing?' · TEST DATA — NOT FOR FLIGHT USE':' · reported NOTAMs'));
-   showNotamStatus(testing?'FAA NMS PRE-PRODUCTION / TEST DATA. NOT VALID FOR FLIGHT PLANNING.':data.total===0?'Provider returned no notices for '+airport+'.':'FAA NMS notices for '+airport+(data.cached?' · cached · next FAA pull no sooner than 3 minutes after last request':''));
+   showNotamStatus(testing?'TEST DATA — NOT FOR FLIGHT USE':data.total===0?'No NOTAMs returned':'');
    renderNotams();
  }catch(err){
    if(current.homeId!==airport)return;
