@@ -2565,3 +2565,10 @@ body.dashboard-fit.card-focus-open #modal{
   grid-template-columns:minmax(0,1fr)!important;
  }
 }
+
+.aircraft-tracker-form{display:grid;gap:10px;max-width:520px;margin:0 auto}
+.aircraft-tracker-form label{font-weight:750;color:#ecf4ff}
+.aircraft-tracker-form input{width:100%;padding:9px 11px;border:1px solid #4d7da2;border-radius:6px;background:#091422;color:#f5faff;font-size:16px;text-transform:uppercase}
+.aircraft-tracker-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.aircraft-tracker-actions a{padding-block:8px}
+.aircraft-tracker-form .source-note{margin:0;color:#c4d6e8}

@@ -38,6 +38,23 @@ function setTab(group,selected){$$(`[data-${group}]`).forEach(el=>el.classList.t
 function showModal(title,content,source){text('#modal-title',title);const container=$('#modal-content');container.replaceChildren();if(typeof content==='string')container.innerHTML=content;else if(content)container.append(content);const l=$('#modal-link');l.href=source||'#';l.classList.toggle('hidden',!source);$('#modal').classList.remove('hidden');$('#modal-close').focus()}
 function closeModal(){if(current.modalMapResizeObserver){current.modalMapResizeObserver.disconnect();current.modalMapResizeObserver=null}if(current.modalMap){current.modalMap.remove();current.modalMap=null;current.modalRouteLayer=null;current.modalRouteRadarLayer=null}$('#modal').classList.add('hidden');$('#modal-content').replaceChildren()}
 $('#modal-close').addEventListener('click',closeModal);$('#modal').addEventListener('click',e=>{if(e.target===$('#modal'))closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+$('#track-aircraft').addEventListener('click',()=>{
+ const form=$('#aircraft-tracker-template').content.firstElementChild.cloneNode(true);
+ const registration=form.elements.namedItem('reg');
+ registration.addEventListener('input',()=>registration.setCustomValidity(''));
+ form.addEventListener('submit',event=>{
+  const tail=registration.value.trim().toUpperCase();
+  if(!/^[A-Z0-9]{2,12}$|^[A-Z0-9]+-[A-Z0-9]+$/.test(tail)){
+   event.preventDefault();
+   registration.setCustomValidity('Enter a tail number such as N123AB or C-GABC.');
+   registration.reportValidity();
+   return;
+  }
+  registration.value=tail;
+ });
+ showModal('Track Aircraft',form);
+ registration.focus();
+});
 function openChart(key){const c=charts[key];if(!c)return;const wrap=document.createElement('div');const img=document.createElement('img');img.src=c.image+(c.image.includes('?')?'&':'?')+'v='+Math.floor(Date.now()/900000);img.alt=c.name;img.onerror=()=>{img.style.display='none';const p=document.createElement('p');p.className='source-note';p.textContent='Official chart temporarily unavailable. Open the WPC/SPC source using the link above.';wrap.append(p)};wrap.append(img);showModal(c.name,wrap,c.source)}
 $$('[data-open-chart]').forEach(el=>el.addEventListener('click',()=>openChart(el.dataset.openChart)));
 function scrollToPanel(id){document.getElementById(id)?.scrollIntoView({behavior:'smooth',block:'center'})}
