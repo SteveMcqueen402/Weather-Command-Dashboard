@@ -720,14 +720,16 @@ function fitDashboard(){
   return;
  }
  document.body.classList.add('fit-proportional');
- const safeX=document.body.classList.contains('wall-active')?0.04:0.008;
- const safeY=document.body.classList.contains('wall-active')?0.045:0.008;
- const availW=vw*(1-2*safeX),availH=vh*(1-2*safeY);
- // Ensure a comfortable 3-column content width and enough vertical room for
- // all left/right panels, even with TV text-size and overscan adjustments.
- const designW=Math.max(1500,vw);
- const designH=Math.max(1040,Math.round(vh*1.18));
- const scale=Math.min(1,availW/designW,availH/designH);
+ const wallActive=document.body.classList.contains('wall-active');
+ const inset=wallActive?0.03:0.008;
+ const availableWidth=vw*(1-2*inset),availableHeight=vh*(1-2*inset);
+ const baseWidth=wallActive?1500:Math.max(1500,vw);
+ const baseHeight=wallActive?840:Math.max(1040,Math.round(vh*1.18));
+ const scale=Math.min(1,availableWidth/baseWidth,availableHeight/baseHeight);
+ // In Wall mode, let the grid grow along the longer axis of the TV.
+ // Keep a single scale for the map, text and controls.
+ const designW=wallActive?availableWidth/scale:baseWidth;
+ const designH=wallActive?availableHeight/scale:baseHeight;
  const left=(vw-designW*scale)/2,top=(vh-designH*scale)/2;
  const set=(name,value)=>main.style.setProperty(name,value,'important');
  set('position','fixed');set('width',designW+'px');set('height',designH+'px');
