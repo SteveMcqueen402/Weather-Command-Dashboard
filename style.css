@@ -2029,7 +2029,7 @@ body.dashboard-fit:not(.card-focus-open) #sigmet-panel .hazard-glance{
 body.dashboard-fit .gfa-winds-toolbar{padding:3px 6px;font-size:10px}
 body.dashboard-fit .gfa-winds-fallback{font-size:10px}
 @media(max-width:700px){
- .gfa-winds-toolbar span{display:none}
+ .gfa-winds-toolbar .gfa-winds-readout{flex:1 0 100%;min-width:0}
  .gfa-winds-view{position:absolute}
  .gfa-winds-toolbar{padding:4px}
  .gfa-winds-frame{min-height:200px}

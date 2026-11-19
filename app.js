@@ -59,12 +59,13 @@ function mapMode(mode){
  $('#gfa-winds-view')?.classList.toggle('hidden',!winds);
  if(winds){
    $('#main-map').classList.add('hidden');
+   $('#play-radar')?.classList.add('hidden');
    $('#map-chart').classList.add('hidden');
    $('#chart-unavailable').classList.add('hidden');
    ensureGfaWinds();
    $('#map-source').href='https://aviationweather.gov/gfa/#winds';
    text('#map-source','NOAA GFA Winds ↗');
-   text('#map-caption','NOAA graphical winds · choose altitude and forecast time in map');
+   text('#map-caption','Select an altitude and forecast time, then tap a barb’s center dot.');
    return;
  }
  $('#play-radar')?.classList.toggle('hidden',mode!=='radar'&&mode!=='route');$('#map-chart').classList.add('hidden');$('#main-map').classList.remove('hidden');$('#chart-unavailable').classList.add('hidden');removeMainLayers();if(mode==='radar'){current.map.setView(homeCoords(),current.mapStyle==='sectional'?8:6);current.mapLayer=addRadarLayer(current.map);$('#map-source').href='https://radar.weather.gov/';text('#map-source','NOAA radar ↗')}else if(mode==='route'){current.routeLayer=drawRouteOn(current.map);if(current.routeRadarOn)current.mapLayer=addRadarLayer(current.map);text('#map-caption','Straight-line planning display; not an approved flight route');$('#map-source').href='https://aviationweather.gov/';text('#map-source','Aviation Weather Center ↗');}else{const c=charts[mode];if(!c)return;$('#main-map').classList.add('hidden');$('#map-chart').classList.remove('hidden');const image=$('#map-chart-image');image.style.display='block';image.src=c.image+(c.image.includes('?')?'&':'?')+'v='+Math.floor(Date.now()/900000);image.alt=c.name;image.onerror=()=>{image.style.display='none';$('#chart-unavailable').classList.remove('hidden')};$('#map-source').href=c.source;text('#map-source','Official source ↗');text('#map-caption',c.name+' · verify analysis/valid time on chart')}if(mode==='radar'||mode==='route'){setTimeout(()=>{current.map.invalidateSize({pan:false});current.mapLayer?.redraw()},220);setTimeout(()=>current.map.invalidateSize({pan:false}),1000)}}
@@ -103,7 +104,7 @@ $('#expand-map').onclick=()=>{
    const link=document.createElement('a');link.href='https://aviationweather.gov/gfa/#winds';
    link.target='_blank';link.rel='noopener noreferrer';
    link.textContent='Open NOAA full Winds map ↗';
-   const note=document.createElement('p');note.textContent='Choose forecast elevation and time using NOAA controls.';
+   const note=document.createElement('p');note.textContent='Choose an altitude and forecast time, then tap a barb’s center dot for direction and speed in knots.';
    const frame=document.createElement('iframe');frame.src='https://aviationweather.gov/gfa/#winds';
    frame.title='NOAA GFA Winds interactive forecast';frame.loading='lazy';
    shell.append(link,note,frame);
