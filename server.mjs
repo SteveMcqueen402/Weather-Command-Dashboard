@@ -141,8 +141,15 @@ async function readModelWinds(station,fcst){
     const levels=[925,900,850,800,700,600,500];
     const fields=levels.flatMap(p=>['wind_speed_'+p+'hPa','wind_direction_'+p+'hPa','geopotential_height_'+p+'hPa']);
     const [lat,lon]=modelWindsStations[station];
-    const url='https://api.open-meteo.com/v1/gfs?latitude='+lat+'&longitude='+lon+
-      '&hourly='+encodeURIComponent(fields.join(','))+'&wind_speed_unit=kn&timezone=GMT&forecast_days=2';
+    // A paid commercial Open-Meteo subscription uses the customer host and an
+    // API key. Leave the personal prototype unchanged until a key is provided.
+    const openMeteoKey=(process.env.OPEN_METEO_API_KEY||'').trim();
+    const commercialMode=process.env.WCD_COMMERCIAL_MODE==='true';
+    if(commercialMode&&!openMeteoKey)throw Error('Commercial Open-Meteo forecast unavailable: configure OPEN_METEO_API_KEY.');
+    const openMeteoHost=openMeteoKey?'https://customer-api.open-meteo.com':'https://api.open-meteo.com';
+    const url=openMeteoHost+'/v1/gfs?latitude='+lat+'&longitude='+lon+
+      '&hourly='+encodeURIComponent(fields.join(','))+'&wind_speed_unit=kn&timezone=GMT&forecast_days=2'+
+      (openMeteoKey?'&apikey='+encodeURIComponent(openMeteoKey):'');
     try{
       const response=await fetch(url,{headers:{'User-Agent':'WeatherCommandDashboard/3.12 (forecast model guidance)'},signal:AbortSignal.timeout(14000)});
       if(response.status===429){
@@ -298,6 +305,20 @@ const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8'
 const server=http.createServer(async(req,res)=>{
   try{
     const u=new URL(req.url,`http://localhost:${port}`);
+    if(u.pathname==='/api/provider-status'){
+      // Public-safe operational overview. Never return API keys, tokens, or credentials.
+      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
+      res.end(JSON.stringify({
+        commercialMode:process.env.WCD_COMMERCIAL_MODE==='true',
+        commercialReady:false,
+        configured:{openMeteoPaid:Boolean(process.env.OPEN_METEO_API_KEY),
+          faaNms:Boolean(process.env.NMS_API_CLIENT_ID)&&Boolean(process.env.NMS_API_CLIENT_SECRET)},
+        blockers:['RainViewer commercial agreement or replacement',
+          'Commercial map tile and imagery permissions',
+          'FAA sectional map terms review',
+          'Production data load and reliability tests']
+      }));return;
+    }
     if(u.pathname.startsWith('/api/chart/')){
       let key=u.pathname.slice('/api/chart/'.length);
       if(key==='convective'){const day=u.searchParams.get('day')||'1';if(!['1','2','3'].includes(day)){res.writeHead(400);res.end('Invalid forecast day');return;}if(day!=='1')key='convective-'+day;}
