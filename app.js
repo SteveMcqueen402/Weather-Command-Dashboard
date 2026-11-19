@@ -723,13 +723,19 @@ function fitDashboard(){
  const wallActive=document.body.classList.contains('wall-active');
  const inset=wallActive?0.02:0.008;
  const availableWidth=vw*(1-2*inset),availableHeight=vh*(1-2*inset);
- const baseWidth=wallActive?1500:Math.max(1500,vw);
- const baseHeight=wallActive?840:Math.max(1040,Math.round(vh*1.18));
+ // Responsively choose a reference canvas from the *actual* screen size.
+ // A fixed 1040px virtual height was causing a huge letterbox on 900px TVs.
+ // Allow the grid to use its real width and height on modern 16:9 displays.
+ // Only scale down when the device cannot fit the minimum legible layout.
+ const minWidth=vw>=1200?1200:Math.max(1050,Math.round(vh*1.35));
+ const minHeight=vw>=1100?700:690;
+ const baseWidth=Math.max(minWidth,availableWidth);
+ const baseHeight=Math.max(minHeight,availableHeight);
  const scale=Math.min(1,availableWidth/baseWidth,availableHeight/baseHeight);
- // In Wall mode, let the grid grow along the longer axis of the TV.
- // Keep a single scale for the map, text and controls.
- const designW=wallActive?availableWidth/scale:baseWidth;
- const designH=wallActive?availableHeight/scale:baseHeight;
+ // Expand the reference canvas to occupy all available pixels in either
+ // direction; CSS grid receives full usable width/height, not a letterbox.
+ const designW=availableWidth/scale;
+ const designH=availableHeight/scale;
  const left=(vw-designW*scale)/2,top=(vh-designH*scale)/2;
  const set=(name,value)=>main.style.setProperty(name,value,'important');
  set('position','fixed');set('width',designW+'px');set('height',designH+'px');
@@ -754,6 +760,8 @@ function toggleFit(){
 }
 $('#fit-screen').onclick=toggleFit;
 window.addEventListener('resize',()=>{if(fitActive)requestAnimationFrame(fitDashboard)});
+window.addEventListener('orientationchange',()=>{if(fitActive)requestAnimationFrame(fitDashboard)});
+if(window.visualViewport)window.visualViewport.addEventListener('resize',()=>{if(fitActive)requestAnimationFrame(fitDashboard)});
 
 function repairMobileMap(){if(!current.map)return;const visible=$('#main-map')?.getBoundingClientRect();if(visible&&visible.width>20&&visible.height>20){current.map.invalidateSize({pan:false});if(!current.mapLayer&&['radar','route'].includes($('.tab.active')?.dataset.map))current.mapLayer=addRadarLayer(current.map)}}
 // Leaflet must be told when grid/flex changes map dimensions without window resize.
