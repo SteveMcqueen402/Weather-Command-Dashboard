@@ -2252,3 +2252,23 @@ body.dashboard-fit:not(.free-layout-active) .wall>.leftstack>#notam-section{
   flex:1 1 0!important;
  }
 }
+
+/* TVs can crop the outer edges of a fullscreen picture. Keep Wall mode's
+   content inside a safe area while the dashboard grid lays out at its real size. */
+body.wall-active{
+ --wall-inset-x:5vw;
+ --wall-inset-y:5vh;
+ --wall-inset-y:5dvh;
+}
+body.wall-active main,
+body.wall-active.dashboard-fit:not(.card-focus-open) main{
+ padding:var(--wall-inset-y) var(--wall-inset-x)!important;
+}
+@media (orientation:landscape) and (max-width:1100px){
+ body.wall-active.dashboard-fit:not(.card-focus-open) .wall{
+  grid-template-columns:minmax(0,1fr) minmax(0,2fr) minmax(0,1.2fr)!important;
+ }
+ body.wall-active.dashboard-fit:not(.card-focus-open) .locationbar{
+  flex-wrap:wrap!important;
+ }
+}

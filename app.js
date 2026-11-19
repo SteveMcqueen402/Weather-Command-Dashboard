@@ -668,22 +668,30 @@ $('#home-airport-form').addEventListener('submit',async e=>{
 
 const autoRefresh=$('#auto-refresh');autoRefresh.checked=readPref('wc-auto-refresh-v25','on')==='on';
 autoRefresh.onchange=()=>{writePref('wc-auto-refresh-v25',autoRefresh.checked?'on':'off');if(autoRefresh.checked)refresh()};
-// Fullscreen gracefully falls back to an app-style maximized view when the browser forbids the API.
-function refreshWallLabel(){const active=Boolean(document.fullscreenElement)||document.body.classList.contains('wall-maximized');text('#wall-mode',active?'⛶ Exit Wall':'⛶ Wall');}
+// Use the same TV-safe layout in native fullscreen and in the browser fallback.
+function updateWallMode(){
+ const active=Boolean(document.fullscreenElement)||document.body.classList.contains('wall-maximized');
+ document.body.classList.toggle('wall-active',active);
+ text('#wall-mode',active?'⛶ Exit Wall':'⛶ Wall');
+ requestAnimationFrame(()=>{repairMobileMap();fitDashboard()});
+}
 $('#wall-mode').onclick=async()=>{
- if(document.fullscreenElement){try{await document.exitFullscreen()}catch(err){status('Unable to exit fullscreen: '+err.message)}refreshWallLabel();return}
- if(document.body.classList.contains('wall-maximized')){document.body.classList.remove('wall-maximized');refreshWallLabel();return}
- try{
-  if(typeof document.documentElement.requestFullscreen!=='function')throw Error('Native fullscreen is not supported');
-  await document.documentElement.requestFullscreen();
- }catch(err){
-  document.body.classList.add('wall-maximized');
-  status('Browser fullscreen is restricted; using maximized dashboard display instead.');
+ if(document.fullscreenElement){
+  try{await document.exitFullscreen()}catch(err){status('Unable to exit fullscreen: '+err.message)}
+ }else if(document.body.classList.contains('wall-maximized')){
+  document.body.classList.remove('wall-maximized');
+  status('');
+ }else{
+  try{
+   await document.documentElement.requestFullscreen();
+  }catch{
+   document.body.classList.add('wall-maximized');
+   status('Browser fullscreen is restricted; using maximized dashboard display instead.');
+  }
  }
- refreshWallLabel();
- setTimeout(()=>{repairMobileMap();fitDashboard()},150);
+ updateWallMode();
 };
-document.addEventListener('fullscreenchange',()=>{refreshWallLabel();setTimeout(()=>{repairMobileMap();fitDashboard()},150)});
+document.addEventListener('fullscreenchange',updateWallMode);
 let fitActive=false;
 function fitDashboard(){
  if(!fitActive)return;
