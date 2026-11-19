@@ -1976,3 +1976,63 @@ body.dashboard-fit:not(.card-focus-open) #sigmet-panel .hazard-glance{
  }
  body.dashboard-fit:not(.card-focus-open) #wind-section .panel-link{display:none!important}
 }
+
+
+/* v3.13 — Winds is now an interactive map product, not a station FB table.
+   Keep the legacy wind inputs in the DOM for route forecasts, but do not
+   spend valuable FBO or fridge screen area on an unsupported text feed. */
+#wind-section{display:none!important}
+.leftstack{min-width:0!important}
+.leftstack>#airport-section,.leftstack>#notam-section{min-height:0!important}
+.leftstack>#airport-section{overflow:hidden}
+.leftstack>#notam-section{margin:0!important;align-self:stretch!important;height:100%!important;overflow:hidden!important}
+.leftstack>#notam-section .notam-list{max-height:none!important;min-height:0!important;overflow:hidden!important}
+.leftstack>#notam-section .notam-item{padding:5px 7px!important}
+.leftstack>#airport-section .aviation-body pre{max-height:none!important;min-height:0!important;overflow:hidden!important}
+@media(min-width:1101px){
+ body:not(.free-layout-active) .wall>.leftstack{
+  display:grid!important;grid-template-rows:minmax(185px,.95fr) minmax(210px,1.3fr)!important;
+  height:100%!important;min-height:0!important;align-content:stretch!important;
+ }
+ body.dashboard-fit:not(.free-layout-active) .wall>.leftstack{
+  display:grid!important;
+  grid-template-rows:minmax(0,.9fr) minmax(0,1.45fr)!important;
+  height:100%!important;align-content:stretch!important;
+ }
+}
+@media(orientation:portrait) and (min-width:700px){
+ body.dashboard-fit:not(.free-layout-active) .wall>.leftstack{
+  display:grid!important;grid-template-columns:minmax(0,1fr)!important;
+  grid-template-rows:minmax(0,.85fr) minmax(0,1.5fr)!important;
+  height:100%!important;min-height:0!important;gap:6px!important;
+ }
+ body.dashboard-fit:not(.free-layout-active) .leftstack>#notam-section,
+ body.dashboard-fit:not(.free-layout-active) .leftstack>#airport-section{
+  height:100%!important;min-height:0!important;overflow:hidden!important;
+ }
+}
+.gfa-winds-view{position:absolute;inset:0;background:#101a27;color:#eaf7ff;
+ display:flex;flex-direction:column;min-height:0;min-width:0;z-index:3}
+.gfa-winds-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;
+ padding:6px 8px;background:#122439;border-bottom:1px solid #42677e;font-size:11px}
+.gfa-winds-toolbar strong{font-size:12px;color:#72dcff}
+.gfa-winds-toolbar span{color:#c2d4e3;flex:1;min-width:145px}
+.gfa-winds-toolbar a{font-size:12px;color:#8bddff;font-weight:800}
+.gfa-winds-frame{position:relative;flex:1;min-height:0}
+.gfa-winds-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#08131e}
+.gfa-winds-fallback{position:absolute;bottom:0;left:0;right:0;background:#111b2de8;color:#d3e4f2;
+ text-align:center;padding:4px 6px;font-size:10px;pointer-events:none}
+.gfa-winds-expanded{display:flex;flex-direction:column;height:70dvh;gap:6px}
+.gfa-winds-expanded>iframe{flex:1 1 auto;min-height:250px;width:100%;border:0;background:#0d1926}
+.gfa-winds-expanded>p{margin:0;font-size:12px;color:#c8def0}
+.gfa-winds-expanded>a{font-size:13px;font-weight:800}
+body.dashboard-fit .gfa-winds-toolbar{padding:3px 6px;font-size:10px}
+body.dashboard-fit .gfa-winds-fallback{font-size:10px}
+@media(max-width:700px){
+ .gfa-winds-toolbar span{display:none}
+ .gfa-winds-view{position:absolute}
+ .gfa-winds-toolbar{padding:4px}
+ .gfa-winds-frame{min-height:200px}
+}
+/* NOAA GFA iframe sits above the disabled Leaflet pane. */
+.map-area:has(#gfa-winds-view:not(.hidden)){position:relative!important}
