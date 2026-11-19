@@ -2447,3 +2447,48 @@ body.fit-proportional.dashboard-fit:not(.card-focus-open){
 }
 /* Do not override the canvas width/height: the Fit Screen controller sizes
    those inline to the full viewport, then scales only if needed. */
+
+
+/* Expanded-panel legibility fix: Fit Screen creates a transformed <main>.
+   Its transform is a stacking context, so the old body::after overlay
+   (z-index:9950) painted ABOVE every panel despite child z-index:9951.
+   Attach backdrop to the transformed main instead, and keep focused
+   content above it in the same stacking context. */
+body.dashboard-fit.card-focus-open::after{
+ content:none!important;
+ display:none!important;
+}
+body.dashboard-fit.card-focus-open main::after{
+ content:""!important;
+ position:fixed!important;
+ inset:-200vmax!important;
+ z-index:9950!important;
+ background:rgba(1,8,17,.69)!important;
+ pointer-events:none!important;
+}
+body.dashboard-fit.card-focus-open .focus-panel-active{
+ z-index:9952!important;
+ background:#21394f!important;
+ color:#f4faff!important;
+ border:2px solid #83d9fc!important;
+ box-shadow:0 18px 65px rgba(0,0,0,.75)!important;
+}
+body.dashboard-fit.card-focus-open .focus-panel-active .panelhead{
+ background:#28516b!important;
+ border-bottom:1px solid #69b2d7!important;
+}
+body.dashboard-fit.card-focus-open .focus-panel-active .panelhead h2,
+body.dashboard-fit.card-focus-open .focus-panel-active :is(.aviation-body,.aviation-body pre,.notam-list,.notam-item,.hazard-item,.hazard-status,.hazard-snippet,.hazard-meta,.route-leg-breakdown,.forecast-days,.day,.wind-rows,.wind-row){
+ color:#f3f9ff!important;
+ opacity:1!important;
+}
+body.dashboard-fit.card-focus-open .focus-panel-active :is(.hazard-item,.notam-item,.day,.route-leg,.wind-row){
+ background:#1a3248!important;
+ border-color:#577d99!important;
+}
+body.dashboard-fit.card-focus-open .focus-panel-active :is(small,.fine,.muted,.hazard-meta,.day small){
+ color:#c9deed!important;
+}
+body.dashboard-fit.card-focus-open .focus-close{
+ z-index:9954!important;
+}
