@@ -2215,3 +2215,40 @@ body.dashboard-fit:not(.card-focus-open) .home-airport-control .home-notam-prior
    font-size:12px!important;line-height:1.35!important;
  }
 }
+
+
+/* v3.16 — Forecast is a child of LEFTSTACK. Retired v3.9 rules assigned
+   #forecast-section to grid-column:2 / grid-row:1 globally (from when it
+   lived in rightstack). That creates an implicit second leftstack column,
+   squeezing the forecast into a nearly empty horizontal strip. */
+body:not(.free-layout-active) .wall>.leftstack>#airport-section,
+body.dashboard-fit:not(.free-layout-active) .wall>.leftstack>#airport-section{
+ grid-column:1!important;grid-row:1!important;
+ width:100%!important;min-width:0!important;
+}
+body:not(.free-layout-active) .wall>.leftstack>#forecast-section,
+body.dashboard-fit:not(.free-layout-active) .wall>.leftstack>#forecast-section{
+ grid-column:1!important;grid-row:2!important;
+ width:100%!important;min-width:0!important;height:100%!important;
+ min-height:0!important;align-self:stretch!important;
+}
+body:not(.free-layout-active) .wall>.leftstack>#notam-section,
+body.dashboard-fit:not(.free-layout-active) .wall>.leftstack>#notam-section{
+ grid-column:1!important;grid-row:3!important;
+ width:100%!important;min-width:0!important;
+}
+@media(min-width:1101px){
+ body.dashboard-fit:not(.free-layout-active) .wall>.leftstack{
+   grid-auto-columns:0!important;grid-auto-flow:row!important;
+   grid-template-columns:minmax(0,1fr)!important;
+ }
+ body.dashboard-fit:not(.free-layout-active) .wall>.leftstack>#forecast-section{
+  display:flex!important;flex-direction:column!important;
+  min-height:0!important;padding:7px 9px!important;
+ }
+ body.dashboard-fit:not(.free-layout-active) .wall>.leftstack>#forecast-section #forecast-days{
+  display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;
+  grid-template-rows:minmax(0,1fr)!important;min-height:0!important;
+  flex:1 1 0!important;
+ }
+}
