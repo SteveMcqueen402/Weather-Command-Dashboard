@@ -2252,3 +2252,79 @@ body.dashboard-fit:not(.free-layout-active) .wall>.leftstack>#notam-section{
   flex:1 1 0!important;
  }
 }
+
+/* TVs can crop the outer edges of a fullscreen picture. Keep Wall mode's
+   content inside a safe area while the dashboard grid lays out at its real size. */
+body.wall-active{
+ --wall-inset-x:5vw;
+ --wall-inset-y:5vh;
+ --wall-inset-y:5dvh;
+}
+body.wall-active main,
+body.wall-active.dashboard-fit:not(.card-focus-open) main{
+ padding:var(--wall-inset-y) var(--wall-inset-x)!important;
+}
+@media (orientation:landscape){
+ body.dashboard-fit:not(.card-focus-open) .locationbar{
+  flex-wrap:wrap!important;
+ }
+ body.dashboard-fit:not(.free-layout-active) .wall{
+  width:100%;
+  min-width:0;
+  grid-template-columns:minmax(0,var(--wc-left,1.32fr)) minmax(0,var(--wc-map,1.75fr)) minmax(0,var(--wc-right,1.55fr))!important;
+ }
+ body.dashboard-fit .map-style-bar,
+ body.dashboard-fit .map-control{
+  flex-wrap:wrap;
+ }
+}
+@media (orientation:landscape) and (min-width:701px) and (min-height:600px){
+ /* Older TV browsers may only support vh. */
+ body.dashboard-fit:not(.card-focus-open),
+ body.dashboard-fit:not(.card-focus-open) main{
+  height:100vh!important;
+  height:100dvh!important;
+  min-height:0!important;
+  overflow:hidden!important;
+ }
+}
+@media (orientation:landscape) and (min-width:701px) and (max-width:1100px) and (min-height:600px),
+       (orientation:landscape) and (min-width:1101px) and (min-height:600px) and (max-height:700px){
+ body.dashboard-fit:not(.free-layout-active) .wall{
+  align-items:stretch!important;
+ }
+ body.dashboard-fit:not(.free-layout-active) .wall>.leftstack{
+  grid-template-rows:minmax(0,1.35fr) minmax(0,.9fr) minmax(0,.95fr)!important;
+  align-content:stretch!important;
+ }
+ body.dashboard-fit:not(.free-layout-active) .wall>.rightstack{
+  grid-template-rows:minmax(0,1fr) minmax(0,2.25fr)!important;
+  align-content:stretch!important;
+ }
+ body.dashboard-fit:not(.free-layout-active) .wall>.rightstack>.hazard-panels{
+  min-height:0!important;
+  grid-template-rows:repeat(3,minmax(0,1fr))!important;
+ }
+ body.dashboard-fit:not(.free-layout-active) .wall>.map-panel{
+  display:flex!important;
+  flex-direction:column!important;
+  min-height:0!important;
+ }
+ body.dashboard-fit:not(.free-layout-active) .wall>.map-panel .map-area{
+  flex:1 1 0!important;
+  height:0!important;
+  min-height:0!important;
+ }
+ body.dashboard-fit:not(.card-focus-open) .wall .panel{
+  min-height:0!important;
+  overflow:hidden;
+ }
+ body.dashboard-fit:not(.card-focus-open) .rightstack .panelhead h2{
+  white-space:normal!important;
+ }
+}
+@media (orientation:landscape) and (max-width:700px){
+ body.dashboard-fit:not(.free-layout-active) .wall{
+  grid-template-columns:minmax(0,1fr)!important;
+ }
+}
