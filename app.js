@@ -1061,6 +1061,18 @@ $('#notam-expand').addEventListener('click',()=>{
    open(panel);
   });
  }
+ // The route editor button previously opened a second overlay while the
+ // route card was still inside a scaled <main>, leaving it dark and trapped.
+ // In Fit Screen, use the SAME accessible focused card and close mechanism.
+ const routeEditButton=$('#toggle-route-edit');
+ routeEditButton?.addEventListener('click',event=>{
+  if(!fitActive)return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const routePanel=$('#route-section');
+  if(active===routePanel)close();
+  else open(routePanel);
+ },true);
  // A button outside the panel closes detail mode without requiring a mouse.
  const exit=document.createElement('button');
  exit.type='button';exit.className='focus-close';exit.textContent='✕ Close';
