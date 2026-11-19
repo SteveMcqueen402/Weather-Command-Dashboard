@@ -693,30 +693,60 @@ $('#wall-mode').onclick=async()=>{
 };
 document.addEventListener('fullscreenchange',updateWallMode);
 let fitActive=false;
+function clearFitCanvas(){
+ const main=$('main');
+ document.body.classList.remove('fit-proportional');
+ if(!main)return;
+ for(const prop of ['width','height','max-width','max-height','transform','transform-origin',
+                    'position','left','top','margin','padding','box-sizing'])main.style.removeProperty(prop);
+ delete main.dataset.fitScale;
+}
 function fitDashboard(){
  if(!fitActive)return;
  const main=$('main');
  if(!main)return;
- // FBO mode uses a real viewport-based grid; whole-page scaling makes text
- // illegible on a wall monitor and creates distorted map touch coordinates.
- main.style.removeProperty('width');
- main.style.removeProperty('max-width');
- main.style.removeProperty('height');
- main.style.removeProperty('transform');
- main.style.removeProperty('transform-origin');
- delete main.dataset.fitScale;
+ // In landscape Fit Screen, lay out ONE generous virtual dashboard and
+ // proportionally scale the entire view. TV browser CSS viewports and zoom
+ // levels can be far smaller than the panel layout expects. Resizing each
+ // individual card clipped the bottom row of notices and weather maps.
+ const vw=document.documentElement.clientWidth||window.innerWidth;
+ const vh=window.innerHeight||document.documentElement.clientHeight;
+ const landscape=vw>vh*1.18 && vw>=650;
+ if(!landscape){
+  clearFitCanvas();
+  for(const map of [current.map,current.routeWeatherMap,current.modalMap].filter(Boolean)){
+   setTimeout(()=>{try{map.invalidateSize({pan:false})}catch{}},130);
+  }
+  return;
+ }
+ document.body.classList.add('fit-proportional');
+ const safeX=document.body.classList.contains('wall-active')?0.04:0.008;
+ const safeY=document.body.classList.contains('wall-active')?0.045:0.008;
+ const availW=vw*(1-2*safeX),availH=vh*(1-2*safeY);
+ // Ensure a comfortable 3-column content width and enough vertical room for
+ // all left/right panels, even with TV text-size and overscan adjustments.
+ const designW=Math.max(1500,vw);
+ const designH=Math.max(1040,Math.round(vh*1.18));
+ const scale=Math.min(1,availW/designW,availH/designH);
+ const left=(vw-designW*scale)/2,top=(vh-designH*scale)/2;
+ const set=(name,value)=>main.style.setProperty(name,value,'important');
+ set('position','fixed');set('width',designW+'px');set('height',designH+'px');
+ set('max-width','none');set('max-height','none');set('box-sizing','border-box');
+ set('margin','0');set('left',left+'px');set('top',top+'px');
+ set('transform-origin','top left');set('transform','scale('+scale+')');
+ main.dataset.fitScale=scale.toFixed(3);
+ // Leaflet overlays require fresh dimensions after the initial grid resize.
  for(const map of [current.map,current.routeWeatherMap,current.modalMap].filter(Boolean)){
-  setTimeout(()=>{try{map.invalidateSize({pan:false})}catch{}},120);
+  setTimeout(()=>{try{map.invalidateSize({pan:false})}catch{}},160);
  }
 }
 function toggleFit(){
  fitActive=!fitActive;
- const main=$('main');
  document.body.classList.toggle('dashboard-fit',fitActive);
  text('#fit-screen',fitActive?'⤢ Exit Fit':'⤢ Fit Screen');
  if(!fitActive){
   document.body.classList.remove('route-edit-open');
-  main.style.removeProperty('width');main.style.removeProperty('max-width');main.style.removeProperty('height');main.style.removeProperty('transform');main.style.removeProperty('transform-origin');delete main.dataset.fitScale;repairMobileMap();return
+  clearFitCanvas();repairMobileMap();return;
  }
  fitDashboard();
 }
