@@ -566,8 +566,8 @@ const server=http.createServer(async(req,res)=>{
       }
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=60'});res.end(JSON.stringify(data));return;
     }
-    const file=u.pathname==='/'?'index.html':u.pathname.slice(1);
-    if(!new Set(['index.html','app.js','style.css']).has(file)){res.writeHead(404);res.end('Not found');return;}
+    const file=u.pathname==='/'?'index.html':(['/qds','/product','/landing'].includes(u.pathname)?'qds.html':u.pathname.slice(1));
+    if(!new Set(['index.html','app.js','style.css','qds.html','qds.css','qds.js']).has(file)){res.writeHead(404);res.end('Not found');return;}
     const filename=path.join(root,file);
     const content=await fs.readFile(filename);
     res.writeHead(200,{'Content-Type':types[path.extname(filename)]||'application/octet-stream','Cache-Control':'no-store, max-age=0, must-revalidate','Pragma':'no-cache','Expires':'0'});res.end(content);
