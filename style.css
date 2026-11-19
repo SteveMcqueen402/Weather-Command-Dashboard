@@ -2432,3 +2432,18 @@ body.wall-active.fit-proportional.dashboard-fit:not(.card-focus-open) .stats .st
 body.wall-active.fit-proportional.dashboard-fit:not(.free-layout-active) .wall>.rightstack{
  grid-template-rows:minmax(175px,1fr) minmax(0,3fr)!important;
 }
+
+
+/* v3.20: Fit means full-bleed. The Wall Mode overscan rule above used
+   5vw/5vh padding and overrode Fit's compact padding, leaving a thick
+   dark border around every edge when Wall and Fit were both enabled. */
+body.fit-proportional.dashboard-fit:not(.card-focus-open) main,
+body.wall-active.fit-proportional.dashboard-fit:not(.card-focus-open) main{
+ padding:5px 7px!important;
+
+}
+body.fit-proportional.dashboard-fit:not(.card-focus-open){
+ margin:0!important;padding:0!important;
+}
+/* Do not override the canvas width/height: the Fit Screen controller sizes
+   those inline to the full viewport, then scales only if needed. */
