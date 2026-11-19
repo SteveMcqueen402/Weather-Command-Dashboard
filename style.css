@@ -2424,3 +2424,11 @@ body.fit-proportional.dashboard-fit #forecast-section #forecast-days{
  flex:1 1 0!important;min-height:0!important;
  grid-template-columns:repeat(5,minmax(0,1fr))!important;
 }
+
+/* Keep the Wall mode route totals visible and make the overview easier to read at a distance. */
+body.wall-active.fit-proportional.dashboard-fit:not(.card-focus-open) .stats .statvalue{
+ font-size:clamp(28px,2.1vw,38px)!important;
+}
+body.wall-active.fit-proportional.dashboard-fit:not(.free-layout-active) .wall>.rightstack{
+ grid-template-rows:minmax(175px,1fr) minmax(0,3fr)!important;
+}

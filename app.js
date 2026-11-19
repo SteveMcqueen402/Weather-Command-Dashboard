@@ -721,7 +721,7 @@ function fitDashboard(){
  }
  document.body.classList.add('fit-proportional');
  const wallActive=document.body.classList.contains('wall-active');
- const inset=wallActive?0.03:0.008;
+ const inset=wallActive?0.02:0.008;
  const availableWidth=vw*(1-2*inset),availableHeight=vh*(1-2*inset);
  const baseWidth=wallActive?1500:Math.max(1500,vw);
  const baseHeight=wallActive?840:Math.max(1040,Math.round(vh*1.18));
