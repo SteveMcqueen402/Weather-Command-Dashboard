@@ -2492,3 +2492,76 @@ body.dashboard-fit.card-focus-open .focus-panel-active :is(small,.fine,.muted,.h
 body.dashboard-fit.card-focus-open .focus-close{
  z-index:9954!important;
 }
+
+
+/* v3.22 — Route Planner/expanded cards must render OUTSIDE the transformed
+   Fit Screen canvas. JS portals the selected panel to <body>. Put the
+   scrim behind it (not on main), keep its close button in front. */
+body.dashboard-fit.card-focus-open::after{
+ content:""!important;display:block!important;
+ position:fixed!important;inset:0!important;
+ background:rgba(0,8,17,.66)!important;
+ z-index:9950!important;pointer-events:none!important;
+}
+body.dashboard-fit.card-focus-open main::after{
+ content:none!important;display:none!important;
+}
+body.dashboard-fit.card-focus-open > .focus-panel-active{
+ position:fixed!important;z-index:9952!important;
+ top:50%!important;left:50%!important;
+ transform:translate(-50%,-50%)!important;
+ width:min(1120px,94vw)!important;
+ height:min(850px,88vh)!important;height:min(850px,88dvh)!important;
+ min-width:0!important;max-width:94vw!important;
+ max-height:88vh!important;max-height:88dvh!important;
+ display:flex!important;flex-direction:column!important;
+ overflow:auto!important;padding:20px!important;
+ border:2px solid #83d9fc!important;border-radius:12px!important;
+ background:#21394f!important;color:#f5faff!important;
+ box-shadow:0 20px 85px #000d!important;
+}
+body.dashboard-fit.card-focus-open > #route-section.focus-panel-active{
+ background:#203c53!important;
+}
+body.dashboard-fit.card-focus-open > .focus-panel-active :is(.panelhead,.aviation-body,.notam-list,.route-editor,.routefields,.hazard-items,.forecast-days){
+ opacity:1!important;visibility:visible!important;
+}
+body.dashboard-fit.card-focus-open > .focus-panel-active .route-editor{
+ display:grid!important;
+ grid-template-columns:repeat(2,minmax(0,1fr))!important;
+ gap:10px!important;max-height:none!important;overflow:visible!important;
+}
+body.dashboard-fit.card-focus-open > .focus-panel-active .route-editor.is-collapsed{
+ display:none!important;
+}
+body.dashboard-fit.card-focus-open > .focus-panel-active :is(.panelhead h2,.route-leg-breakdown,.route-editor label,.route-current,.hazard-status,.hazard-item,.notam-item,.aviation-body pre){
+ color:#f5faff!important;
+}
+body.dashboard-fit.card-focus-open > .focus-close{
+ display:block!important;position:fixed!important;z-index:9956!important;
+ top:2vh!important;top:2dvh!important;right:2vw!important;
+ padding:12px 18px!important;background:#1b658a!important;
+ border:2px solid #b0eaff!important;color:#fff!important;
+ border-radius:8px!important;font-weight:800!important;
+ box-shadow:0 7px 30px #000b!important;
+}
+/* Route-edit overlay was a second scrim layered over focused route cards.
+   The expanded card itself is the editing surface in Fit Screen. */
+body.dashboard-fit.card-focus-open.route-edit-open::before{
+ display:none!important;content:none!important;
+}
+body.dashboard-fit.card-focus-open.route-edit-open > #route-section.focus-panel-active{
+ z-index:9952!important;background:#203c53!important;
+}
+body.dashboard-fit.card-focus-open #modal{
+ z-index:9970!important;
+}
+@media(max-width:700px){
+ body.dashboard-fit.card-focus-open > .focus-panel-active{
+  width:96vw!important;max-width:96vw!important;
+  height:88dvh!important;padding:12px!important;
+ }
+ body.dashboard-fit.card-focus-open > .focus-panel-active .route-editor{
+  grid-template-columns:minmax(0,1fr)!important;
+ }
+}

@@ -997,10 +997,18 @@ $('#notam-expand').addEventListener('click',()=>{
  const supported=['airport-section','wind-section','notam-section','charts-section',
   'route-section','forecast-section','pirep-panel','sigmet-panel','convective-panel'];
  let active=null;
- const close=()=>{
+ let originalSlot=null;
+ const restore=()=>{
   if(!active)return;
   active.classList.remove('focus-panel-active');
+  // Move the detail pane back to its original grid position on close.
+  if(originalSlot?.parentNode)originalSlot.replaceWith(active);
+  originalSlot=null;
   active=null;
+ };
+ const close=()=>{
+  if(!active)return;
+  restore();
   document.body.classList.remove('card-focus-open','route-edit-open');
   $('#route-form')?.classList.add('is-collapsed');
   $('#toggle-route-edit')?.setAttribute('aria-expanded','false');
@@ -1010,8 +1018,14 @@ $('#notam-expand').addEventListener('click',()=>{
  const open=panel=>{
   if(!fitActive||!panel)return;
   if(active===panel)return;
-  if(active)active.classList.remove('focus-panel-active');
+  if(active)restore();
+  // A transformed dashboard creates a stacking context below its overlay.
+  // Portal expanded panels to body so contrast and close controls remain on top.
+  const slot=document.createComment('Expanded dashboard panel original position');
+  panel.parentNode?.insertBefore(slot,panel);
+  originalSlot=slot;
   active=panel;
+  document.body.appendChild(panel);
   document.body.classList.add('card-focus-open');
   panel.classList.add('focus-panel-active');
   if(panel.id==='route-section'){
@@ -1047,6 +1061,18 @@ $('#notam-expand').addEventListener('click',()=>{
    open(panel);
   });
  }
+ // The route editor button previously opened a second overlay while the
+ // route card was still inside a scaled <main>, leaving it dark and trapped.
+ // In Fit Screen, use the SAME accessible focused card and close mechanism.
+ const routeEditButton=$('#toggle-route-edit');
+ routeEditButton?.addEventListener('click',event=>{
+  if(!fitActive)return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const routePanel=$('#route-section');
+  if(active===routePanel)close();
+  else open(routePanel);
+ },true);
  // A button outside the panel closes detail mode without requiring a mouse.
  const exit=document.createElement('button');
  exit.type='button';exit.className='focus-close';exit.textContent='✕ Close';
