@@ -644,7 +644,7 @@ function refreshHomeLabels(){
  const title=$('#airport-section .panelhead h2');if(title)title.textContent='✈ '+current.homeId+' AVIATION';
  $('#quick-from').value=current.homeId;$('#route-from').value=current.homeId;
  const forecast=$('#forecast-select');if(forecast){forecast.replaceChildren();const option=document.createElement('option');option.value=current.homeId;option.textContent=current.homeId+' · home';forecast.append(option)}
- text('#notam-panel-airport',current.homeId);text('#notam-home-id',current.homeId);text('#notam-summary','NOTAM feed pending');
+ text('#notam-panel-airport',current.homeId);text('#notam-home-id',current.homeId);text('#notam-summary','NOTAM feed pending');updateHomeNotamPriority('loading');
  const label=$('#wind')?.closest('.stat')?.querySelector('.stathead span');if(label)label.textContent='WINDS AT '+current.homeId;
  const windStations=$('#wind-station');if(windStations){const short=/^K[A-Z]{3}$/.test(current.homeId)?current.homeId.slice(1):null;if(!windStations.dataset.userSelected&&short)windStations.value=short;else if(!short)text('#winds-status',`${current.homeId} is not automatically a winds-aloft reporting station. Select a published 3-letter FB station (such as OFK or OMA).`)}
 }
@@ -817,6 +817,30 @@ function notamFilterMatches(n,filter){
  if(filter==='RUNWAY')return code==='RUNWAY'||code==='RWY_COND';
  return code===filter;
 }
+function updateHomeNotamPriority(state='ready'){
+ const button=$('#home-notam-priority'),label=$('#home-notam-priority-text');
+ if(!button||!label)return;
+ button.classList.remove('notam-alert','notam-error');
+ if(state==='loading'){label.textContent='Checking airport notices…';return}
+ if(state==='error'){label.textContent='NOTAM feed unavailable';button.classList.add('notam-error');return}
+ if(state==='test'){label.textContent='TEST NOTAM data';button.classList.add('notam-error');return}
+ const priorities=notamNotices.filter(n=>{
+  const raw=String(n.text||n.reading||'').toUpperCase();
+  return n.isTfr||/\\b(?:RWY|RUNWAY)\\b.{0,65}\\bCLSD\\b/.test(raw)||
+   /\\bCLSD\\b.{0,65}\\b(?:RWY|RUNWAY)\\b/.test(raw)||
+   /\\bAD\\s+CLSD\\b/.test(raw)||
+   /\\bAIRSPACE\\b.{0,70}\\b(?:RESTRICTED|CLOSED)\\b/.test(raw);
+ });
+ if(priorities.length){
+  button.classList.add('notam-alert');
+  const first=priorities[0];
+  const brief=String(first.reading||first.text||first.category||'Priority notice').replace(/\\s+/g,' ').trim();
+  label.textContent='IMPORTANT NOTAM · '+(first.number?first.number+' · ':'')+brief.slice(0,100)+(priorities.length>1?' · +'+(priorities.length-1)+' more':'');
+ }else{
+  label.textContent=(Number.isFinite(Number(notamTotal))?notamTotal:notamNotices.length)+' NOTAMs · View notices';
+ }
+}
+$('#home-notam-priority')?.addEventListener('click',()=>$('#notam-expand')?.click());
 function renderNotams(){
  const area=$('#notam-list');area.replaceChildren();const filter=$('#notam-filter').value;
  const filtered=notamNotices.filter(n=>notamFilterMatches(n,filter));
@@ -838,7 +862,7 @@ function renderNotams(){
 }
 async function loadNotams(page=1){
  const airport=current.homeId;
- if(page===1){notamPage=1;notamNotices=[];notamHasMore=false;notamTotal=0;notamAirport=airport;}
+ if(page===1){notamPage=1;notamNotices=[];notamHasMore=false;notamTotal=0;notamAirport=airport;}updateHomeNotamPriority('loading');
  showNotamStatus('Loading '+airport+' NOTAMs…');
  $('#notam-more').disabled=true;
  try{
@@ -850,10 +874,12 @@ async function loadNotams(page=1){
    text('#notam-home-id',testing?'TEST':String(data.total));text('#notam-summary',airport+(testing?' · TEST DATA — NOT FOR FLIGHT USE':' · reported NOTAMs'));
    showNotamStatus(testing?'TEST DATA — NOT FOR FLIGHT USE':data.total===0?'No NOTAMs returned':'');
    renderNotams();
+   updateHomeNotamPriority(testing?'test':'ready');
  }catch(err){
    if(current.homeId!==airport)return;
    if(page===1){notamNotices=[];notamHasMore=false;notamTotal=0;$('#notam-list').replaceChildren();text('#notam-home-id',airport);text('#notam-summary','NOTAM feed unavailable')}
    showNotamStatus((err.name==='AbortError'?'FAA NMS request timed out after 30 seconds.':err.message)+' No notices are being represented as current.');
+   updateHomeNotamPriority('error');
    text('#notam-count-detail','Data unavailable');
  }finally{$('#notam-more').disabled=false}
 }
