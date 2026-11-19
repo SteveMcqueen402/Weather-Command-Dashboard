@@ -169,7 +169,7 @@ function distanceNM(a,b){const rad=x=>x*Math.PI/180;const dlat=rad(b[0]-a[0]),dl
 // Winds-aloft route planning. Forecast direction is the direction wind comes FROM.
 // Each leg uses the same explicitly selected FB station; this is a forecast estimate,
 // not an along-route gridded wind forecast or an aircraft performance calculation.
-const routeWindState={report:null,key:'',error:'',request:0};
+const routeWindState={report:null,key:'',error:'',request:0,pending:false};
 const windStation=()=>String($('#route-wind-station')?.value||'').trim().toUpperCase();
 const windRequestKey=()=>`${windStation()}/${$('#route-wind-cycle').value}`;
 function routeBearing(a,b){
@@ -178,14 +178,21 @@ function routeBearing(a,b){
  const x=Math.cos(toRad(a[0]))*Math.sin(toRad(b[0]))-Math.sin(toRad(a[0]))*Math.cos(toRad(b[0]))*Math.cos(toRad(b[1]-a[1]));
  return (fromRad(Math.atan2(y,x))+360)%360;
 }
+function windVector(direction,speed){
+ const angle=direction*Math.PI/180;
+ return {east:-speed*Math.sin(angle),north:-speed*Math.cos(angle)};
+}
 function windAtAltitude(rows,alt){
- const usable=(rows||[]).filter(r=>Number.isFinite(Number(r.altitude))&&Number.isFinite(Number(r.speed))&&(r.calm||Number.isFinite(Number(r.direction)))).sort((a,b)=>a.altitude-b.altitude);
- if(!usable.length)return null;
- const vector=r=>{const theta=(Number(r.direction||0)*Math.PI/180);return {east:-Number(r.speed)*Math.sin(theta),north:-Number(r.speed)*Math.cos(theta)}};
- const pair=usable.reduce((a,r)=>{if(r.altitude<=alt)a.low=r;if(r.altitude>=alt&&!a.high)a.high=r;return a},{low:null,high:null});
- const low=pair.low||pair.high,high=pair.high||pair.low;
- const v1=vector(low),v2=vector(high),frac=low.altitude===high.altitude?0:(alt-low.altitude)/(high.altitude-low.altitude);
- return {east:v1.east+(v2.east-v1.east)*frac,north:v1.north+(v2.north-v1.north)*frac,sourceAltitudes:low.altitude===high.altitude?[low.altitude]:[low.altitude,high.altitude],extrapolated:alt<usable[0].altitude||alt>usable.at(-1).altitude};
+ const usable=(rows||[]).filter(r=>Number.isFinite(r.altitude)&&Number.isFinite(r.speed)&&r.speed>=0&&(r.calm||Number.isFinite(r.direction))).sort((a,b)=>a.altitude-b.altitude);
+ const highIndex=usable.findIndex(r=>r.altitude>=alt);
+ if(highIndex<0)return null;
+ const high=usable[highIndex];
+ if(high.altitude===alt)return windVector(high.direction||0,high.speed);
+ if(highIndex===0)return null;
+ const low=usable[highIndex-1];
+ const a=windVector(low.direction||0,low.speed),b=windVector(high.direction||0,high.speed);
+ const ratio=(alt-low.altitude)/(high.altitude-low.altitude);
+ return {east:a.east+(b.east-a.east)*ratio,north:a.north+(b.north-a.north)*ratio};
 }
 function routeLegSpeed(tas,bearing,w){
  const t=bearing*Math.PI/180;
@@ -204,43 +211,65 @@ function calculateRoute(){
  }
  const tas=Number($('#groundspeed').value),gph=Number($('#fuelburn').value),alt=Number($('#route-altitude').value);
  const valid=complete&&tas>0&&gph>0;
- const windOk=valid&&routeWindState.key===windRequestKey()&&!routeWindState.error&&routeWindState.report?.available&&alt>=3000&&alt<=18000;
- const wind=windOk?windAtAltitude(routeWindState.report.rows,alt):null;
- let hours=0,impossible=false,gsWeighted=0;
- if(valid){for(let i=1;i<current.route.length;i++){
+ const directionInput=$('#route-wind-manual-direction'),speedInput=$('#route-wind-manual-speed');
+ const manual=directionInput.value!==''||speedInput.value!==''||directionInput.validity.badInput||speedInput.validity.badInput;
+ const manualValid=!manual||(directionInput.value!==''&&speedInput.value!==''&&directionInput.validity.valid&&speedInput.validity.valid);
+ const report=routeWindState.key===windRequestKey()?routeWindState.report:null;
+ const pending=!manual&&routeWindState.pending;
+ const wind=manual
+  ? (manualValid?windVector(directionInput.valueAsNumber,speedInput.valueAsNumber):null)
+  : (report?.available?windAtAltitude(report.rows,alt):null);
+ let hours=0,impossible=false;
+ if(valid&&manualValid&&!pending){for(let i=1;i<current.route.length;i++){
   const prev=current.route[i-1],next=current.route[i],nm=distanceNM(prev.coords,next.coords),heading=routeBearing(prev.coords,next.coords);
   const correction=wind?routeLegSpeed(tas,heading,wind):{gs:tas,along:0,cross:0,wca:0};
   if(!correction){impossible=true;break}
-  const legHours=nm/correction.gs;hours+=legHours;gsWeighted+=nm;
+  const legHours=nm/correction.gs;hours+=legHours;
   if(root){const line=document.createElement('div');line.className='route-leg-line';line.textContent=`${prev.id} → ${next.id} · ${nm.toFixed(1)} NM · ${Math.round(heading).toString().padStart(3,'0')}° true · ${correction.gs.toFixed(0)} kt GS · ${Math.round(legHours*60)} min${wind?' · '+(correction.along>=0?'tailwind ':'headwind ')+Math.abs(correction.along).toFixed(0)+' kt':''}`;root.append(line)}
  }}
- text('#distance',valid?sum.toFixed(0)+' NM':'—');text('#ete',valid&&!impossible?(hours*60).toFixed(0)+' min':'—');text('#fuel',valid&&!impossible?(hours*gph).toFixed(1)+' gal':'—');
- const msg=$('#route-wind-summary');if(msg){
-  msg.classList.toggle('has-winds',Boolean(wind));
-  if(!valid)msg.textContent='Enter a valid route, TAS and fuel burn to calculate travel time.';
-  else if(impossible)msg.textContent='Selected wind exceeds the aircraft’s ability to maintain the course at this TAS. Adjust altitude, TAS, or forecast.';
-  else if(wind){const speed=Math.hypot(wind.east,wind.north);const toward=(Math.atan2(wind.east,wind.north)*180/Math.PI+360)%360;const from=(toward+180)%360;msg.textContent=`${routeWindState.report.modelGuidance?'MODEL WIND-ADJUSTED (GFS; not an official FB forecast)':'WIND-ADJUSTED (official FB)'} · ${windStation()} · ${$('#route-wind-cycle').value}h · ${alt.toLocaleString()} ft MSL · ${speed.toFixed(0)} kt from ${Math.round(from).toString().padStart(3,'0')}° true · Avg ${(sum/hours).toFixed(0)} kt GS${wind.extrapolated?' · Nearest available altitude (extrapolation not used)':''}. Forecast ${routeWindState.report.header?.find(h=>/VALID/i.test(h))||'valid time: verify source'}.`}
-  else msg.textContent=`STILL-AIR ONLY · ${routeWindState.error||'No applicable winds-aloft forecast loaded'} · ${tas.toFixed(0)} kt TAS assumed as groundspeed. Wind correction not included.`;
+ const estimated=valid&&sum>0&&manualValid&&!pending&&!impossible;
+ text('#distance',complete?sum.toFixed(0)+' NM':'—');
+ text('#ete',estimated?(hours*60).toFixed(0)+' min':'—');
+ text('#fuel',estimated?(hours*gph).toFixed(1)+' gal':'—');
+ text('#route-time-label',!valid?'ESTIMATED TIME':!manualValid?'CHECK WIND INPUT':pending?'LOADING WINDS':impossible?'TRACK UNAVAILABLE':wind?(manual?'TIME · MANUAL WIND':report.stale?'TIME · CACHED WIND':'TIME · FORECAST WIND'):'TIME · STILL AIR');
+ const msg=$('#route-wind-summary');
+ if(msg){
+  msg.classList.toggle('has-winds',estimated&&Boolean(wind));
+  if(!valid||sum===0)msg.textContent='Enter a valid route, TAS and fuel burn to calculate travel time.';
+  else if(!manualValid)msg.textContent='Enter both manual wind direction (degrees true, from) and wind speed (knots), or clear both to use the forecast.';
+  else if(pending)msg.textContent=`Loading ${windStation()} winds aloft…`;
+  else if(impossible)msg.textContent='The selected wind and TAS do not allow progress along at least one planned leg.';
+  else if(wind){
+   const speed=Math.hypot(wind.east,wind.north);
+   const from=Math.round((Math.atan2(-wind.east,-wind.north)*180/Math.PI+360)%360)%360;
+   const windLabel=speed<0.5?'Calm':`${speed.toFixed(0)} kt from ${String(from).padStart(3,'0')}° true`;
+   const source=manual?'Manual cruise wind':`${report.stale?'Previous ':''}${report.modelGuidance?'GFS model':'Official FB'} · ${windStation()} · ${alt.toLocaleString()} ft MSL`;
+   const validTime=manual?'':report.header?.find(h=>/VALID/i.test(h));
+   msg.textContent=`${source} · ${windLabel} · Avg ${(sum/hours).toFixed(0)} kt GS${validTime?' · '+validTime:''}`;
+  }else{
+   const reason=report?'No forecast covers the selected cruise altitude':routeWindState.error||'No winds-aloft forecast loaded';
+   msg.textContent=`STILL-AIR ONLY · ${reason} · ${tas.toFixed(0)} kt TAS used as groundspeed. Enter manual cruise wind to apply a correction.`;
+  }
  }
- return valid&&!impossible;
+ return valid;
 }
 async function loadRouteWinds(){
  const station=windStation(),cycle=$('#route-wind-cycle').value,key=windRequestKey();
- const request=++routeWindState.request;routeWindState.report=null;routeWindState.key=key;routeWindState.error='';
+ const request=++routeWindState.request;routeWindState.report=null;routeWindState.key=key;routeWindState.error='';routeWindState.pending=false;
  if(!/^[A-Z]{3}$/.test(station)){routeWindState.error='Enter a published 3-letter FB winds station (e.g. OMA or OFK)';calculateRoute();return}
  if(!current.route.length){calculateRoute();return}
- text('#route-wind-summary',`Loading official ${station} ${cycle}h winds aloft…`);
+ routeWindState.pending=true;calculateRoute();
  try{const report=await fetchJSON(`/api/winds-aloft?station=${encodeURIComponent(station)}&fcst=${encodeURIComponent(cycle)}`);
   if(request!==routeWindState.request)return;
   if(!report.available||!report.rows?.length)throw Error(`No ${station} FB forecast available`);
   routeWindState.report=report;
  }catch(err){if(request!==routeWindState.request)return;routeWindState.error=err.message}
- calculateRoute();
+ routeWindState.pending=false;calculateRoute();
 }
 $('#route-wind-refresh').addEventListener('click',loadRouteWinds);
-for(const name of ['groundspeed','fuelburn','route-altitude'])$('#'+name).addEventListener('input',calculateRoute);
+for(const name of ['groundspeed','fuelburn','route-altitude','route-wind-manual-direction','route-wind-manual-speed'])$('#'+name).addEventListener('input',calculateRoute);
 for(const name of ['route-wind-cycle','route-wind-station'])$('#'+name).addEventListener('change',loadRouteWinds);
-$('#route-wind-station').addEventListener('input',()=>{routeWindState.report=null;routeWindState.error='Forecast station changed; update route winds';calculateRoute()});
+$('#route-wind-station').addEventListener('input',()=>{routeWindState.request++;routeWindState.report=null;routeWindState.pending=false;routeWindState.error='Forecast station changed; update route winds';calculateRoute()});
 function updateForecastLocations(){const selected=$('#forecast-select').value;const opts=[{id:current.homeId},...current.route.filter(x=>x.id!==current.homeId)].filter((p,i,a)=>a.findIndex(x=>x.id===p.id)===i);$('#forecast-select').replaceChildren();opts.forEach(p=>{const option=document.createElement('option');option.value=p.id;option.textContent=p.id;$('#forecast-select').append(option)});$('#forecast-select').value=opts.some(x=>x.id===selected)?selected:current.homeId;loadLocationForecast()}
 
 const categoryClass=cat=>['VFR','MVFR','IFR','LIFR'].includes(cat)?cat.toLowerCase():'unknown';
@@ -310,7 +339,7 @@ if($('#expand-route-map'))$('#expand-route-map').onclick=expandRouteMap;
 if($('#route-radar'))$('#route-radar').onchange=e=>{current.routeRadarOn=e.target.checked;drawSmallRouteMap()};
 
 function drawRouteWeather(){const host=$('#route-weather');if(!host)return;host.replaceChildren();if(!current.route.length){host.textContent='No route has been entered.';return}for(const p of current.route){const line=document.createElement('div');line.className='airport-row';const btn=document.createElement('button');btn.textContent=p.id;btn.title='Show airport weather';btn.onclick=()=>openAirport(p);const cat=document.createElement('span');cat.textContent=p.metar?.fltCat||'NO METAR';cat.className='category '+(p.metar?.fltCat||'');line.append(btn,cat);host.append(line)}}
-async function loadRoute(e){e?.preventDefault();let ids;try{ids=[normalize($('#route-from').value),...$('#route-via').value.split(',').map(x=>x.trim()).filter(Boolean).map(normalize),normalize($('#route-to').value)];if(ids.length>12)throw Error('Use at most 12 airports');}catch(err){text('#route-status',err.message);return}const button=$('#route-form button[type=submit]');button.disabled=true;text('#route-status','Loading airport observations and route positions…');try{current.route=await lookupAirports(ids);drawRouteWeather();drawSmallRouteMap();const can=calculateRoute();loadRouteWinds();const found=current.route.filter(x=>x.metar).length;const noReports=current.route.filter(x=>!x.metar).map(x=>x.id);text('#route-status',`${found}/${ids.length} airport METARs available · ${can?'Straight-line distance shown; loading forecast winds for ETA/fuel.':'Some airport coordinates unavailable; estimate not calculated.'}${noReports.length?' No on-field METAR: '+noReports.join(', ')+'.':''} Not an operational flight plan.`);updateForecastLocations();if($('.tab.active')?.dataset.map==='route')mapMode('route')}catch(err){showRouteInputs();text('#route-status','Route calculation unavailable: '+err.message)}finally{button.disabled=false}}
+async function loadRoute(e){e?.preventDefault();let ids;try{ids=[normalize($('#route-from').value),...$('#route-via').value.split(',').map(x=>x.trim()).filter(Boolean).map(normalize),normalize($('#route-to').value)];if(ids.length>12)throw Error('Use at most 12 airports');}catch(err){text('#route-status',err.message);return}const button=$('#route-form button[type=submit]');button.disabled=true;text('#route-status','Loading airport observations and route positions…');try{current.route=await lookupAirports(ids);loadRouteWinds();const can=calculateRoute();drawRouteWeather();drawSmallRouteMap();const found=current.route.filter(x=>x.metar).length;const noReports=current.route.filter(x=>!x.metar).map(x=>x.id);text('#route-status',`${found}/${ids.length} airport METARs available · ${can?'Straight-line distance shown; loading forecast winds for ETA/fuel.':'Some airport coordinates unavailable; estimate not calculated.'}${noReports.length?' No on-field METAR: '+noReports.join(', ')+'.':''} Not an operational flight plan.`);updateForecastLocations();if($('.tab.active')?.dataset.map==='route')mapMode('route')}catch(err){showRouteInputs();text('#route-status','Route calculation unavailable: '+err.message)}finally{button.disabled=false}}
 $('#route-form').addEventListener('submit',loadRoute);
 // Reflect route inputs immediately, including when weather observations are unavailable.
 function showRouteInputs(){
