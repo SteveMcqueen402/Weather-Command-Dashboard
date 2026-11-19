@@ -478,7 +478,7 @@ async function loadWinds(){
    host.append(message);
  }
 }
-$('#wind-cycle').onchange=loadWinds;$('#wind-station').addEventListener('change',loadWinds);$('#wind-station').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();loadWinds()}});$('#wind-station-go').onclick=loadWinds;$('#wind-station').addEventListener('input',()=>{$('#wind-station').dataset.userSelected='true'});
+// Legacy wind controls remain available internally for compatibility, but the\n// dashboard no longer polls deprecated FB wind tables every three minutes.\n$('#wind-cycle').onchange=loadWinds;$('#wind-station').addEventListener('change',loadWinds);$('#wind-station').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();loadWinds()}});$('#wind-station-go').onclick=loadWinds;$('#wind-station').addEventListener('input',()=>{$('#wind-station').dataset.userSelected='true'});
 $('#quick-plan').onclick=()=>{
  $('#route-from').value=$('#quick-from').value;
  $('#route-to').value=$('#quick-to').value;
@@ -620,7 +620,7 @@ $$('[data-hazard-expand]').forEach(button=>button.addEventListener('click',()=>{
  showModal(title,box,'https://aviationweather.gov/gfa/');
 }));
 
-let refreshBusy=false;async function refresh(){if(refreshBusy)return;refreshBusy=true;text('#checked','Refreshing sources…');status('');try{await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadRadar(),loadLocationForecast(),loadWinds(),loadNotams(),loadHazards(),...(current.route.length?[loadRouteWinds()]:[])]);text('#checked','Updated '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZoneName:'short'}))}finally{refreshBusy=false}}
+let refreshBusy=false;async function refresh(){if(refreshBusy)return;refreshBusy=true;text('#checked','Refreshing sources…');status('');try{await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadRadar(),loadLocationForecast(),loadNotams(),loadHazards(),...(current.route.length?[loadRouteWinds()]:[])]);text('#checked','Updated '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZoneName:'short'}))}finally{refreshBusy=false}}
 $('#refresh').onclick=refresh;
 // Independent live UTC/Zulu clock, 24-hour format with seconds. No network request required.
 function updateZuluClock(){
@@ -662,7 +662,7 @@ $('#home-airport-form').addEventListener('submit',async e=>{
   if(current.homeMarker)current.map.removeLayer(current.homeMarker);
   current.homeMarker=L.marker(homeCoords()).addTo(current.map).bindPopup(current.homeId+' · Home airport');
   if(!current.route.length)drawSmallRouteMap();
-  await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadLocationForecast(),loadWinds(),loadNotams(),loadHazards()]);status('Home airport saved: '+id);
+  await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadLocationForecast(),loadNotams(),loadHazards()]);status('Home airport saved: '+id);
  }catch(err){text('#home-airport-status','Unable to select: '+err.message);status(err.message)}finally{btn.disabled=false}
 });
 
