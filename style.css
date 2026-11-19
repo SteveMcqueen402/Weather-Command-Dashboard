@@ -2137,3 +2137,81 @@ body.dashboard-fit:not(.card-focus-open) .home-airport-control .home-notam-prior
  .leftstack>#forecast-section .day strong{font-size:11px!important}
  .leftstack>#forecast-section .day small{font-size:10px!important}
 }
+
+
+/* v3.15 — Forecast moved left, so rightstack has TWO children, not three.
+   Explicit placement eliminates the empty phantom grid row that compressed
+   three hazard cards to thin, unreadable strips on desktop and Fit Screen. */
+@media (min-width:1101px) {
+ body:not(.free-layout-active) .wall>.rightstack,
+ body.dashboard-fit:not(.free-layout-active) .wall>.rightstack,
+ body.dashboard-fit:not(.card-focus-open) .wall>.rightstack {
+   display:grid!important;
+   grid-template-columns:minmax(0,1fr)!important;
+   grid-template-rows:minmax(135px,.78fr) minmax(320px,3.3fr)!important;
+   height:100%!important;min-height:0!important;align-content:stretch!important;
+   gap:8px!important;
+ }
+ body:not(.free-layout-active) .wall>.rightstack>#route-section,
+ body.dashboard-fit:not(.card-focus-open) .wall>.rightstack>#route-section {
+   grid-column:1!important;grid-row:1!important;
+   height:100%!important;min-height:0!important;overflow:hidden!important;
+ }
+ body:not(.free-layout-active) .wall>.rightstack>.hazard-panels,
+ body.dashboard-fit:not(.card-focus-open) .wall>.rightstack>.hazard-panels {
+   grid-column:1!important;grid-row:2!important;
+   display:grid!important;grid-template-columns:minmax(0,1fr)!important;
+   grid-template-rows:repeat(3,minmax(0,1fr))!important;
+   height:100%!important;min-height:0!important;min-width:0!important;
+   gap:8px!important;align-content:stretch!important;
+ }
+ body:not(.free-layout-active) .wall>.rightstack>.hazard-panels>.hazard-panel,
+ body.dashboard-fit:not(.card-focus-open) .wall>.rightstack>.hazard-panels>.hazard-panel{
+   min-width:0!important;min-height:0!important;height:100%!important;overflow:hidden!important;
+ }
+ body:not(.free-layout-active) .wall>.leftstack,
+ body.dashboard-fit:not(.free-layout-active) .wall>.leftstack{
+   grid-template-rows:minmax(190px,1.43fr) minmax(140px,.98fr) minmax(150px,1.07fr)!important;
+ }
+ body:not(.free-layout-active) .leftstack>#airport-section,
+ body.dashboard-fit:not(.free-layout-active) .leftstack>#airport-section {
+   display:flex!important;flex-direction:column!important;
+   min-height:0!important;overflow:hidden!important;
+ }
+ body:not(.free-layout-active) #airport-section .aviation-body,
+ body.dashboard-fit:not(.free-layout-active) #airport-section .aviation-body{
+   flex:1 1 0!important;min-height:0!important;overflow:hidden!important;
+   display:flex!important;flex-direction:column!important;
+ }
+ body:not(.free-layout-active) #airport-section #aviation-raw,
+ body.dashboard-fit:not(.free-layout-active) #airport-section #aviation-raw{
+   flex:1 1 auto!important;min-height:0!important;max-height:none!important;
+   white-space:pre-wrap!important;overflow-wrap:anywhere!important;
+   font-size:clamp(13px,.92vw,16px)!important;line-height:1.5!important;
+   overflow:hidden!important;
+ }
+ body:not(.free-layout-active) #airport-section #aviation-time,
+ body.dashboard-fit:not(.free-layout-active) #airport-section #aviation-time{
+   flex:0 0 auto!important;
+ }
+}
+@media (orientation:portrait) and (min-width:700px) and (max-width:1100px){
+ body.dashboard-fit:not(.card-focus-open) .wall>.leftstack{
+   grid-template-rows:minmax(0,1.35fr) minmax(0,.90fr) minmax(0,.95fr)!important;
+ }
+ body.dashboard-fit:not(.card-focus-open) .wall>.rightstack{
+   grid-template-columns:minmax(0,1fr)!important;
+   grid-template-rows:minmax(0,.6fr) minmax(0,2.6fr)!important;
+ }
+ body.dashboard-fit:not(.card-focus-open) .wall>.rightstack>#route-section{
+   grid-column:1!important;grid-row:1!important;
+ }
+ body.dashboard-fit:not(.card-focus-open) .wall>.rightstack>.hazard-panels{
+   grid-column:1!important;grid-row:2!important;
+   grid-template-rows:repeat(3,minmax(0,1fr))!important;
+ }
+ body.dashboard-fit:not(.card-focus-open) #airport-section .aviation-body pre{
+   white-space:pre-wrap!important;overflow-wrap:anywhere!important;
+   font-size:12px!important;line-height:1.35!important;
+ }
+}
