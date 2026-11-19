@@ -49,7 +49,25 @@ function addRadarLayer(map){const frame=latestRadarFrame();if(!frame||!map)retur
 function transitionRadar(map,slot){if(!map)return;const prior=current[slot];const next=addRadarLayer(map);if(!next)return;current[slot]=next;let retired=false;const retire=()=>{if(retired)return;retired=true;if(prior&&prior!==next&&map.hasLayer(prior))map.removeLayer(prior)};next.once('load',retire);setTimeout(retire,1400)}
 function removeMainLayers(){if(current.mapLayer){current.map.removeLayer(current.mapLayer);current.mapLayer=null}if(current.routeLayer){current.map.removeLayer(current.routeLayer);current.routeLayer=null}}
 function drawRouteOn(map){const pts=current.route.filter(p=>p.coords);const group=L.layerGroup().addTo(map);if(pts.length){const coords=pts.map(x=>x.coords);pts.forEach(p=>{const name=htmlEscape(p.id), report=htmlEscape(p.metar?.rawOb||'METAR unavailable');L.marker(p.coords).addTo(group).bindPopup(`<strong>${name}</strong><p>${report}</p>`)});if(coords.length>1)L.polyline(coords,{color:'#55d9ff',weight:4,dashArray:'8 6'}).addTo(group);if(coords.length>1)map.fitBounds(L.latLngBounds(coords).pad(.18));else map.setView(coords[0],8)}else{L.marker(homeCoords()).bindPopup(current.homeId).addTo(group);map.setView(homeCoords(),current.mapStyle==='sectional'?8:6)}return group}
-function mapMode(mode){setTab('map',mode);$('#play-radar')?.classList.toggle('hidden',mode!=='radar'&&mode!=='route');$('#map-chart').classList.add('hidden');$('#main-map').classList.remove('hidden');$('#chart-unavailable').classList.add('hidden');removeMainLayers();if(mode==='radar'){current.map.setView(homeCoords(),current.mapStyle==='sectional'?8:6);current.mapLayer=addRadarLayer(current.map);$('#map-source').href='https://radar.weather.gov/';text('#map-source','NOAA radar ↗')}else if(mode==='route'){current.routeLayer=drawRouteOn(current.map);if(current.routeRadarOn)current.mapLayer=addRadarLayer(current.map);text('#map-caption','Straight-line planning display; not an approved flight route');$('#map-source').href='https://aviationweather.gov/';text('#map-source','Aviation Weather Center ↗');}else{const c=charts[mode];if(!c)return;$('#main-map').classList.add('hidden');$('#map-chart').classList.remove('hidden');const image=$('#map-chart-image');image.style.display='block';image.src=c.image+(c.image.includes('?')?'&':'?')+'v='+Math.floor(Date.now()/900000);image.alt=c.name;image.onerror=()=>{image.style.display='none';$('#chart-unavailable').classList.remove('hidden')};$('#map-source').href=c.source;text('#map-source','Official source ↗');text('#map-caption',c.name+' · verify analysis/valid time on chart')}if(mode==='radar'||mode==='route'){setTimeout(()=>{current.map.invalidateSize({pan:false});current.mapLayer?.redraw()},220);setTimeout(()=>current.map.invalidateSize({pan:false}),1000)}}
+function ensureGfaWinds(){
+ const frame=$('#gfa-winds-iframe');
+ if(frame&&!frame.getAttribute('src'))frame.setAttribute('src','https://aviationweather.gov/gfa/#winds');
+}
+function mapMode(mode){
+ setTab('map',mode);
+ const winds=mode==='winds';
+ $('#gfa-winds-view')?.classList.toggle('hidden',!winds);
+ if(winds){
+   $('#main-map').classList.add('hidden');
+   $('#map-chart').classList.add('hidden');
+   $('#chart-unavailable').classList.add('hidden');
+   ensureGfaWinds();
+   $('#map-source').href='https://aviationweather.gov/gfa/#winds';
+   text('#map-source','NOAA GFA Winds ↗');
+   text('#map-caption','NOAA graphical winds · choose altitude and forecast time in map');
+   return;
+ }
+ $('#play-radar')?.classList.toggle('hidden',mode!=='radar'&&mode!=='route');$('#map-chart').classList.add('hidden');$('#main-map').classList.remove('hidden');$('#chart-unavailable').classList.add('hidden');removeMainLayers();if(mode==='radar'){current.map.setView(homeCoords(),current.mapStyle==='sectional'?8:6);current.mapLayer=addRadarLayer(current.map);$('#map-source').href='https://radar.weather.gov/';text('#map-source','NOAA radar ↗')}else if(mode==='route'){current.routeLayer=drawRouteOn(current.map);if(current.routeRadarOn)current.mapLayer=addRadarLayer(current.map);text('#map-caption','Straight-line planning display; not an approved flight route');$('#map-source').href='https://aviationweather.gov/';text('#map-source','Aviation Weather Center ↗');}else{const c=charts[mode];if(!c)return;$('#main-map').classList.add('hidden');$('#map-chart').classList.remove('hidden');const image=$('#map-chart-image');image.style.display='block';image.src=c.image+(c.image.includes('?')?'&':'?')+'v='+Math.floor(Date.now()/900000);image.alt=c.name;image.onerror=()=>{image.style.display='none';$('#chart-unavailable').classList.remove('hidden')};$('#map-source').href=c.source;text('#map-source','Official source ↗');text('#map-caption',c.name+' · verify analysis/valid time on chart')}if(mode==='radar'||mode==='route'){setTimeout(()=>{current.map.invalidateSize({pan:false});current.mapLayer?.redraw()},220);setTimeout(()=>current.map.invalidateSize({pan:false}),1000)}}
 $$('[data-map]').forEach(btn=>btn.addEventListener('click',()=>mapMode(btn.dataset.map)));
 function watchModalMapSize(node,map){
  // Opening a modal and changing device orientation both alter Leaflet's viewport.
@@ -77,7 +95,21 @@ function modalMap(){
  }else current.modalAnimatedRadar=addRadarLayer(current.modalMap);
  watchModalMapSize(node,current.modalMap);
 }
-$('#expand-map').onclick=()=>{const active=$('.tab.active')?.dataset.map;if(charts[active])openChart(active);else modalMap()};$('#map-full').onclick=$('#expand-map').onclick;
+$('#expand-map').onclick=()=>{
+ const active=$('.tab.active')?.dataset.map;
+ if(active==='winds'){
+   const shell=document.createElement('div');
+   shell.className='gfa-winds-expanded';
+   const link=document.createElement('a');link.href='https://aviationweather.gov/gfa/#winds';
+   link.target='_blank';link.rel='noopener noreferrer';
+   link.textContent='Open NOAA full Winds map ↗';
+   const note=document.createElement('p');note.textContent='Choose forecast elevation and time using NOAA controls.';
+   const frame=document.createElement('iframe');frame.src='https://aviationweather.gov/gfa/#winds';
+   frame.title='NOAA GFA Winds interactive forecast';frame.loading='lazy';
+   shell.append(link,note,frame);
+   showModal('NOAA GFA · Winds Aloft',shell,'https://aviationweather.gov/gfa/#winds');
+ }else if(charts[active])openChart(active);else modalMap()
+};$('#map-full').onclick=$('#expand-map').onclick;
 // Unattended FBO screens should always animate available radar frames.
 function startRadarLoop(){
  const frames=current.radar?.radar?.past||[];
