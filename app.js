@@ -720,9 +720,10 @@ function fitDashboard(){
   return;
  }
  document.body.classList.add('fit-proportional');
- const wallActive=document.body.classList.contains('wall-active');
- const inset=wallActive?0.02:0.008;
- const availableWidth=vw*(1-2*inset),availableHeight=vh*(1-2*inset);
+ // Fit Screen uses the full browser viewport, edge to edge.
+ // The optional TV overscan protection applies only to standalone Wall Mode,
+ // never to the Fit Screen button (including when both modes are active).
+ const availableWidth=vw,availableHeight=vh;
  // Responsively choose a reference canvas from the *actual* screen size.
  // A fixed 1040px virtual height was causing a huge letterbox on 900px TVs.
  // Allow the grid to use its real width and height on modern 16:9 displays.
