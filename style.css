@@ -2328,3 +2328,99 @@ body.wall-active.dashboard-fit:not(.card-focus-open) main{
   grid-template-columns:minmax(0,1fr)!important;
  }
 }
+
+
+/* v3.18: Proportional landscape Fit Screen. One virtual 3-column board is
+   resized as a whole; the TV's effective browser viewport never makes its
+   bottom panels fall offscreen. Portrait/fridge and normal desktop unchanged. */
+body.fit-proportional.dashboard-fit{
+ height:100vh!important;height:100dvh!important;overflow:hidden!important;
+}
+body.fit-proportional.dashboard-fit main{
+ display:flex!important;flex-direction:column!important;
+ gap:6px!important;padding:7px 10px!important;
+ min-height:0!important;overflow:hidden!important;
+}
+body.fit-proportional.dashboard-fit .personalize,
+body.fit-proportional.dashboard-fit .locationbar,
+body.fit-proportional.dashboard-fit .stats{
+ flex:0 0 auto!important;min-height:0!important;
+}
+body.fit-proportional.dashboard-fit .locationbar{
+ flex-wrap:nowrap!important;gap:8px!important;overflow:hidden!important;
+}
+body.fit-proportional.dashboard-fit .stats{
+ display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;
+ gap:7px!important;
+}
+body.fit-proportional.dashboard-fit .stats>.stat{
+ min-height:70px!important;max-height:82px!important;
+ padding:7px 10px!important;
+}
+body.fit-proportional.dashboard-fit:not(.free-layout-active) .wall{
+ display:grid!important;
+ flex:1 1 0!important;height:0!important;min-height:0!important;
+ grid-template-columns:minmax(0,1.25fr) minmax(0,2fr) minmax(0,1.3fr)!important;
+ grid-template-rows:minmax(0,1fr)!important;
+ gap:8px!important;align-items:stretch!important;
+}
+body.fit-proportional.dashboard-fit:not(.free-layout-active) .wall>.leftstack{
+ grid-column:1!important;grid-row:1!important;
+ display:grid!important;grid-template-columns:minmax(0,1fr)!important;
+ grid-template-rows:minmax(0,1.35fr) minmax(0,1fr) minmax(0,1.15fr)!important;
+ height:100%!important;min-width:0!important;min-height:0!important;
+ gap:7px!important;align-content:stretch!important;
+}
+body.fit-proportional.dashboard-fit:not(.free-layout-active) .wall>.map-panel{
+ grid-column:2!important;grid-row:1!important;
+ display:flex!important;flex-direction:column!important;
+ height:100%!important;min-width:0!important;min-height:0!important;
+}
+body.fit-proportional.dashboard-fit:not(.free-layout-active) .wall>.map-panel .map-area{
+ flex:1 1 0!important;height:0!important;min-height:0!important;
+ overflow:hidden!important;
+}
+body.fit-proportional.dashboard-fit:not(.free-layout-active) .wall>.rightstack{
+ grid-column:3!important;grid-row:1!important;
+ display:grid!important;grid-template-columns:minmax(0,1fr)!important;
+ grid-template-rows:minmax(0,.85fr) minmax(0,3fr)!important;
+ height:100%!important;min-width:0!important;min-height:0!important;
+ gap:7px!important;align-content:stretch!important;
+}
+body.fit-proportional.dashboard-fit:not(.free-layout-active) .wall>.rightstack>#route-section{
+ grid-column:1!important;grid-row:1!important;
+ height:100%!important;min-height:0!important;min-width:0!important;
+ overflow:hidden!important;
+}
+body.fit-proportional.dashboard-fit:not(.free-layout-active) .wall>.rightstack>.hazard-panels{
+ grid-column:1!important;grid-row:2!important;
+ display:grid!important;grid-template-columns:minmax(0,1fr)!important;
+ grid-template-rows:repeat(3,minmax(0,1fr))!important;
+ height:100%!important;min-width:0!important;min-height:0!important;gap:7px!important;
+}
+body.fit-proportional.dashboard-fit:not(.free-layout-active) .wall>.rightstack .hazard-panel{
+ min-height:0!important;min-width:0!important;height:100%!important;
+ overflow:hidden!important;
+}
+body.fit-proportional.dashboard-fit:not(.free-layout-active) .wall>.leftstack>.panel{
+ min-height:0!important;height:100%!important;min-width:0!important;
+ overflow:hidden!important;
+}
+body.fit-proportional.dashboard-fit:not(.free-layout-active) .leftstack>#airport-section{
+ grid-column:1!important;grid-row:1!important;
+}
+body.fit-proportional.dashboard-fit:not(.free-layout-active) .leftstack>#forecast-section{
+ grid-column:1!important;grid-row:2!important;
+}
+body.fit-proportional.dashboard-fit:not(.free-layout-active) .leftstack>#notam-section{
+ grid-column:1!important;grid-row:3!important;
+}
+/* In this view the whole dashboard is scaled, so preserve readable
+   proportions inside cards rather than separately shrinking every card. */
+body.fit-proportional.dashboard-fit #airport-section #aviation-raw{
+ font-size:14px!important;line-height:1.4!important;white-space:pre-wrap!important;
+}
+body.fit-proportional.dashboard-fit #forecast-section #forecast-days{
+ flex:1 1 0!important;min-height:0!important;
+ grid-template-columns:repeat(5,minmax(0,1fr))!important;
+}
