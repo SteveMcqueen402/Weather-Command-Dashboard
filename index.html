@@ -29,11 +29,11 @@
 
 </aside><section class="panel map-panel" id="charts-section"><div class="panelhead"><h2>WEATHER MAP CENTER · LIVE LAYERS</h2><button class="chevron" id="expand-map" aria-label="Expand map">⤢</button></div><div class="map-style-bar"><label for="map-style">BASE MAP</label><select id="map-style" aria-label="Select map background"><option value="sectional">FAA VFR Sectional</option><option value="street">Street map</option><option value="satellite">Satellite imagery</option></select><span id="map-style-note">FAA VFR sectional</span></div><div class="map-tabs" role="tablist"><button class="tab active" data-map="radar">Radar</button><button class="tab" data-map="surface">Surface / SAC</button><button class="tab" data-map="route">Route map</button><button class="tab" data-map="winds" aria-label="NOAA graphical winds forecast">Winds Aloft</button></div><div id="aircraft-tracker" class="aircraft-tracker hidden">
 <form id="aircraft-tracker-form" class="aircraft-tracker-form">
-<label for="aircraft-registration">Tail number or flight callsign</label>
-<input id="aircraft-registration" name="reg" required minlength="2" maxlength="12" placeholder="N123AB / WN3475" autocomplete="off" spellcheck="false" autocapitalize="characters">
+<label for="aircraft-registration">GA tail or airline flight number</label>
+<input id="aircraft-registration" name="reg" required minlength="2" maxlength="12" placeholder="N123AB / DL3475 / WN3475" autocomplete="off" spellcheck="false" autocapitalize="characters">
 <button type="submit" class="primary">Track</button><button id="clear-aircraft" type="button" class="outline">Clear</button>
 </form>
-<div id="aircraft-track-status" class="aircraft-track-status" role="status">Enter a tail number to show the aircraft on this map.</div>
+<div id="aircraft-track-status" class="aircraft-track-status" role="status">Enter a GA tail number or airline flight number for live tracking.</div>
 <div id="filed-route-controls" class="filed-route-controls hidden">
 <label id="filed-route-access" class="hidden">Personal access code <input id="filed-route-code" type="password" maxlength="256" autocomplete="off"></label>
 <button id="lookup-filed-route" type="button" class="outline">Filed Route</button>
@@ -63,15 +63,15 @@
 <template id="takeoff-watch-template">
  <div class="takeoff-watch">
   <form class="takeoff-watch-form">
-   <label>Tail number or flight callsign <input name="registration" required minlength="2" maxlength="12" placeholder="N123AB / WN3475" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+   <label>GA tail or airline flight number <input name="registration" required minlength="2" maxlength="12" placeholder="N123AB / DL3475 / WN3475" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
    <label>Nickname <input name="nickname" maxlength="40" placeholder="Sentinel"></label>
    <label class="takeoff-watch-check"><input name="enabled" type="checkbox" checked> Alert on takeoff</label>
    <button type="submit" class="primary">Save aircraft / flight</button>
   </form>
   <button type="button" class="outline takeoff-test-button">Test browser alert</button>
-  <p class="source-note">For takeoff detection, keep this dashboard open. Browser notifications require permission; a closed browser cannot deliver these alerts. Detection depends on fresh ground and airborne reports and may miss some departures.</p>
+  <p class="source-note">Airline flight numbers convert to operating ICAO callsigns when recognized; codeshare flights may use another ID. For takeoff detection, keep this dashboard open. Browser notifications require permission; a closed browser cannot deliver these alerts. Detection depends on fresh ground and airborne reports and may miss some departures.</p>
   <div class="takeoff-watch-list"></div>
   <p class="takeoff-watch-latest" role="status"></p>
  </div>
 </template>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="/app.js?v=71" defer></script></body></html>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="/aircraft-identifiers.cjs?v=72" defer></script><script src="/app.js?v=72" defer></script></body></html>
