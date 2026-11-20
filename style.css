@@ -2566,9 +2566,11 @@ body.dashboard-fit.card-focus-open #modal{
  }
 }
 
-.aircraft-tracker-form{display:grid;gap:10px;max-width:520px;margin:0 auto}
+.aircraft-tracker{display:grid;gap:5px;padding:7px 9px;margin-bottom:6px;border:1px solid #3b6682;border-radius:7px;background:#101f2c}
+.aircraft-tracker-form,.aircraft-track-links{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
 .aircraft-tracker-form label{font-weight:750;color:#ecf4ff}
-.aircraft-tracker-form input{width:100%;padding:9px 11px;border:1px solid #4d7da2;border-radius:6px;background:#091422;color:#f5faff;font-size:16px;text-transform:uppercase}
-.aircraft-tracker-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-.aircraft-tracker-actions a{padding-block:8px}
-.aircraft-tracker-form .source-note{margin:0;color:#c4d6e8}
+.aircraft-tracker-form input{width:110px;min-width:0;padding:4px 6px;border:1px solid #4d7da2;border-radius:6px;background:#091422;color:#f5faff;font-size:16px;text-transform:uppercase}
+.aircraft-tracker-form button{padding:4px 8px}
+.aircraft-track-status{font-size:12px;color:#ecf4ff}
+.aircraft-track-links{font-size:10px;gap:12px}
+.tracked-aircraft-icon{display:grid;place-items:center;border:2px solid #111b25;border-radius:50%;background:#ffda55;color:#121922;font:22px/1 sans-serif;box-shadow:0 1px 6px #000a}

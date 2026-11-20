@@ -38,23 +38,6 @@ function setTab(group,selected){$$(`[data-${group}]`).forEach(el=>el.classList.t
 function showModal(title,content,source){text('#modal-title',title);const container=$('#modal-content');container.replaceChildren();if(typeof content==='string')container.innerHTML=content;else if(content)container.append(content);const l=$('#modal-link');l.href=source||'#';l.classList.toggle('hidden',!source);$('#modal').classList.remove('hidden');$('#modal-close').focus()}
 function closeModal(){if(current.modalMapResizeObserver){current.modalMapResizeObserver.disconnect();current.modalMapResizeObserver=null}if(current.modalMap){current.modalMap.remove();current.modalMap=null;current.modalRouteLayer=null;current.modalRouteRadarLayer=null}$('#modal').classList.add('hidden');$('#modal-content').replaceChildren()}
 $('#modal-close').addEventListener('click',closeModal);$('#modal').addEventListener('click',e=>{if(e.target===$('#modal'))closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
-$('#track-aircraft').addEventListener('click',()=>{
- const form=$('#aircraft-tracker-template').content.firstElementChild.cloneNode(true);
- const registration=form.elements.namedItem('reg');
- registration.addEventListener('input',()=>registration.setCustomValidity(''));
- form.addEventListener('submit',event=>{
-  const tail=registration.value.trim().toUpperCase();
-  if(!/^[A-Z0-9]{2,12}$|^[A-Z0-9]+-[A-Z0-9]+$/.test(tail)){
-   event.preventDefault();
-   registration.setCustomValidity('Enter a tail number such as N123AB or C-GABC.');
-   registration.reportValidity();
-   return;
-  }
-  registration.value=tail;
- });
- showModal('Track Aircraft',form);
- registration.focus();
-});
 function openChart(key){const c=charts[key];if(!c)return;const wrap=document.createElement('div');const img=document.createElement('img');img.src=c.image+(c.image.includes('?')?'&':'?')+'v='+Math.floor(Date.now()/900000);img.alt=c.name;img.onerror=()=>{img.style.display='none';const p=document.createElement('p');p.className='source-note';p.textContent='Official chart temporarily unavailable. Open the WPC/SPC source using the link above.';wrap.append(p)};wrap.append(img);showModal(c.name,wrap,c.source)}
 $$('[data-open-chart]').forEach(el=>el.addEventListener('click',()=>openChart(el.dataset.openChart)));
 function scrollToPanel(id){document.getElementById(id)?.scrollIntoView({behavior:'smooth',block:'center'})}
@@ -85,8 +68,108 @@ function mapMode(mode){
    text('#map-caption','Select an altitude and forecast time, then tap a barb’s center dot.');
    return;
  }
- $('#play-radar')?.classList.toggle('hidden',mode!=='radar'&&mode!=='route');$('#map-chart').classList.add('hidden');$('#main-map').classList.remove('hidden');$('#chart-unavailable').classList.add('hidden');removeMainLayers();if(mode==='radar'){current.map.setView(homeCoords(),current.mapStyle==='sectional'?8:6);current.mapLayer=addRadarLayer(current.map);$('#map-source').href='https://radar.weather.gov/';text('#map-source','NOAA radar ↗')}else if(mode==='route'){current.routeLayer=drawRouteOn(current.map);if(current.routeRadarOn)current.mapLayer=addRadarLayer(current.map);text('#map-caption','Straight-line planning display; not an approved flight route');$('#map-source').href='https://aviationweather.gov/';text('#map-source','Aviation Weather Center ↗');}else{const c=charts[mode];if(!c)return;$('#main-map').classList.add('hidden');$('#map-chart').classList.remove('hidden');const image=$('#map-chart-image');image.style.display='block';image.src=c.image+(c.image.includes('?')?'&':'?')+'v='+Math.floor(Date.now()/900000);image.alt=c.name;image.onerror=()=>{image.style.display='none';$('#chart-unavailable').classList.remove('hidden')};$('#map-source').href=c.source;text('#map-source','Official source ↗');text('#map-caption',c.name+' · verify analysis/valid time on chart')}if(mode==='radar'||mode==='route'){setTimeout(()=>{current.map.invalidateSize({pan:false});current.mapLayer?.redraw()},220);setTimeout(()=>current.map.invalidateSize({pan:false}),1000)}}
+ $('#play-radar')?.classList.toggle('hidden',mode!=='radar'&&mode!=='route');$('#map-chart').classList.add('hidden');$('#main-map').classList.remove('hidden');$('#chart-unavailable').classList.add('hidden');removeMainLayers();if(mode==='radar'){current.map.setView(homeCoords(),current.mapStyle==='sectional'?8:6);current.mapLayer=addRadarLayer(current.map);$('#map-source').href='https://radar.weather.gov/';text('#map-source','NOAA radar ↗')}else if(mode==='route'){current.routeLayer=drawRouteOn(current.map);if(current.routeRadarOn)current.mapLayer=addRadarLayer(current.map);text('#map-caption','Straight-line planning display; not an approved flight route');$('#map-source').href='https://aviationweather.gov/';text('#map-source','Aviation Weather Center ↗');}else{const c=charts[mode];if(!c)return;$('#main-map').classList.add('hidden');$('#map-chart').classList.remove('hidden');const image=$('#map-chart-image');image.style.display='block';image.src=c.image+(c.image.includes('?')?'&':'?')+'v='+Math.floor(Date.now()/900000);image.alt=c.name;image.onerror=()=>{image.style.display='none';$('#chart-unavailable').classList.remove('hidden')};$('#map-source').href=c.source;text('#map-source','Official source ↗');text('#map-caption',c.name+' · verify analysis/valid time on chart')}if(mode==='radar'||mode==='route'){if(aircraftTrack?.position)drawTrackedAircraft(current.map,aircraftTrack.position,mode==='radar');setTimeout(()=>{current.map.invalidateSize({pan:false});current.mapLayer?.redraw()},220);setTimeout(()=>current.map.invalidateSize({pan:false}),1000)}}
 $$('[data-map]').forEach(btn=>btn.addEventListener('click',()=>mapMode(btn.dataset.map)));
+const aircraftPanel=$('#aircraft-tracker');
+const aircraftInput=$('#aircraft-registration');
+const aircraftMarkers=new WeakMap();
+let aircraftTrack=null,aircraftExpandedMap=null;
+function drawTrackedAircraft(map,position,center=false){
+ if(!map)return;
+ let marker=aircraftMarkers.get(map);
+ if(!position){
+  marker?.remove();
+  aircraftMarkers.delete(map);
+  return;
+ }
+ const coords=[position.lat,position.lon];
+ const stale=Date.now()-position.observedAt>120000;
+ if(!marker){
+  const icon=L.divIcon({className:'tracked-aircraft-icon',html:'✈',iconSize:[30,30],iconAnchor:[15,15]});
+  marker=L.marker(coords,{icon,interactive:false,keyboard:false,zIndexOffset:500}).addTo(map);
+  aircraftMarkers.set(map,marker);
+ }else marker.setLatLng(coords);
+ marker.setOpacity(stale?.55:1);
+ if(center)map.setView(coords,Math.max(map.getZoom(),8));
+}
+function clearTrackedAircraft(){
+ if(aircraftTrack){
+  clearInterval(aircraftTrack.timer);
+  aircraftTrack.controller?.abort();
+ }
+ aircraftTrack=null;
+ drawTrackedAircraft(current.map,null);
+ drawTrackedAircraft(aircraftExpandedMap,null);
+ $('#aircraft-external').classList.add('hidden');
+ text('#aircraft-track-status','Enter a tail number to show the aircraft on this map.');
+}
+function showAircraftPosition(track,notice=''){
+ const firstPosition=!aircraftMarkers.has(current.map);
+ drawTrackedAircraft(current.map,track.position,firstPosition);
+ drawTrackedAircraft(aircraftExpandedMap,track.position);
+ if(!track.position){text('#aircraft-track-status',notice);return}
+ const {altitude,groundspeed,observedAt}=track.position;
+ const stale=Date.now()-observedAt>120000||Boolean(notice);
+ const details=[track.registration,altitude==='ground'?'On ground':altitude==null?'':altitude.toLocaleString()+' ft',
+  groundspeed==null?'':Math.round(groundspeed)+' kt GS',
+  (stale?'Last known position':'Position reported')+' '+new Date(observedAt).toISOString().slice(11,19)+'Z',notice];
+ text('#aircraft-track-status',details.filter(Boolean).join(' · '));
+}
+async function refreshTrackedAircraft(track){
+ if(!track||track!==aircraftTrack||track.controller||document.hidden||$('#main-map').classList.contains('hidden')||Date.now()<track.retryAt)return;
+ const controller=new AbortController();
+ track.controller=controller;
+ try{
+  const response=await fetch('/api/aircraft?reg='+encodeURIComponent(track.registration),{signal:controller.signal,cache:'no-store'});
+  const result=await response.json();
+  if(track!==aircraftTrack)return;
+  if(response.status===429)track.retryAt=result.retryAt||Date.now()+60000;
+  if(!response.ok)throw Error(result.error||'Aircraft feed unavailable.');
+  if(result.position)track.position=result.position;
+  showAircraftPosition(track,result.position?'':'No current position received for '+track.registration+'.');
+ }catch(error){
+  if(track===aircraftTrack&&!controller.signal.aborted)showAircraftPosition(track,error.message||'Aircraft feed unavailable.');
+ }finally{
+  track.controller=null;
+ }
+}
+$('#track-aircraft').addEventListener('click',()=>{
+ if(!current.map){status('Reload the page to initialize the aircraft map.');return}
+ if($('#main-map').classList.contains('hidden'))mapMode('radar');
+ aircraftPanel.classList.remove('hidden');
+ $('#track-aircraft').setAttribute('aria-expanded','true');
+ aircraftInput.focus();
+});
+$('#clear-aircraft').addEventListener('click',()=>{
+ clearTrackedAircraft();
+ aircraftInput.value='';
+ aircraftInput.setCustomValidity('');
+ aircraftPanel.classList.add('hidden');
+ const button=$('#track-aircraft');
+ button.setAttribute('aria-expanded','false');
+ button.focus();
+});
+aircraftInput.addEventListener('input',()=>aircraftInput.setCustomValidity(''));
+$('#aircraft-tracker-form').addEventListener('submit',event=>{
+ event.preventDefault();
+ const registration=aircraftInput.value.trim().toUpperCase();
+ if(registration.length<2||registration.length>12||!/^[A-Z0-9]+(?:-[A-Z0-9]+)?$/.test(registration)){
+  aircraftInput.setCustomValidity('Enter a tail number such as N123AB or C-GABC.');
+  aircraftInput.reportValidity();
+  return;
+ }
+ if($('#main-map').classList.contains('hidden'))mapMode('radar');
+ clearTrackedAircraft();
+ aircraftInput.value=registration;
+ const fallback=$('#aircraft-external');
+ fallback.href='https://globe.adsbexchange.com/?reg='+encodeURIComponent(registration);
+ fallback.classList.remove('hidden');
+ text('#aircraft-track-status','Looking up '+registration+'…');
+ const track={registration,retryAt:0,position:null,controller:null};
+ aircraftTrack=track;
+ track.timer=setInterval(()=>refreshTrackedAircraft(track),60000);
+ refreshTrackedAircraft(track);
+});
 function watchModalMapSize(node,map){
  // Opening a modal and changing device orientation both alter Leaflet's viewport.
  const resize=()=>{if(current.modalMap===map&&map._container?.isConnected)map.invalidateSize({pan:false,debounceMoveend:true})};
@@ -111,6 +194,10 @@ function modalMap(){
   current.modalRouteLayer=drawRouteOn(current.modalMap);
   if(current.routeRadarOn)current.modalAnimatedRadar=addRadarLayer(current.modalMap);
  }else current.modalAnimatedRadar=addRadarLayer(current.modalMap);
+ const expandedMap=current.modalMap;
+ aircraftExpandedMap=expandedMap;
+ drawTrackedAircraft(expandedMap,aircraftTrack?.position);
+ expandedMap.once('unload',()=>{aircraftExpandedMap=null});
  watchModalMapSize(node,current.modalMap);
 }
 $('#expand-map').onclick=()=>{
