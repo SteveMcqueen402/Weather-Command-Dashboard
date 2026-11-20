@@ -62,3 +62,12 @@ Install the six files via GitHub Desktop; commit and push, then allow Render to 
 The main aircraft tracker uses its existing live position feed. The **Filed Route** button makes a separate, on-demand FlightAware AeroAPI request for the selected tail number. Enable it on a personal deployment by setting `FLIGHTAWARE_API_KEY` and `WCD_FILED_ROUTE_ACCESS_CODE` in the server environment. Set the access code to a long, unique secret of your choice. Enter that code in the dashboard when prompted. Keep the AeroAPI key on the server. The personal feature is disabled in commercial mode.
 
 The server verifies account-wide reported usage before making paid calls and pauses at a conservative threshold of $4.50, reserving for recent requests while FlightAware updates its usage meter. It requests no more than one result set for the aircraft record and makes a waypoint request only when it finds a filed route for an active or upcoming flight. The budget check covers dashboard requests and uses delayed account reporting. FlightAware bills independently and other applications using the account can consume the same allowance.
+
+
+### Live aircraft tracking — commercial flights and general aviation
+
+The **Track Aircraft** field and **Takeoff Alerts** watchlist accept GA registrations (e.g. `N123AB`, `C-GABC`), airline ticket-style flight numbers (e.g. `DL3475` → `DAL3475`, `WN3475` → `SWA3475`, `AA1200` → `AAL1200`, `UA909` → `UAL909`), and direct ICAO callsigns (`DAL3475`, `SWA3475`). The same mapping/validation module is shared between browser and server. Run `npm test` for input regressions.
+
+Live tracking uses ADS-B feeds by **registration** for GA aircraft and by **callsign** for commercial flights. Aircraft must be broadcasting a usable ID and location; an airline may use a different callsign for codeshare or regional operations. Enter the actual operating ICAO callsign or tail number in those cases. An unknown two-character airline code shows an explicit error rather than silently searching as a tail number. ADS-B position feeds do **not** provide flight schedules, guarantee all aircraft are visible, or locate aircraft that are not transmitting.
+
+Takeoff notifications still require an open dashboard tab, permission for browser notifications, and fresh ground-to-airborne reports. These are not reliable server-side push notifications and do not continue with the browser fully closed. Public ADS-B providers have rate limits and separate restrictions on commercial use; confirm suitable licensing before selling this capability.
