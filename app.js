@@ -125,6 +125,11 @@ async function refreshTrackedAircraft(track){
   if(track!==aircraftTrack)return;
   if(response.status===429)track.retryAt=result.retryAt||Date.now()+60000;
   if(!response.ok)throw Error(result.error||'Aircraft feed unavailable.');
+  if(result.position||!track.position){
+   const sourceLink=$('#aircraft-track-source');
+   sourceLink.href=result.source==='adsb.fi'?'https://adsb.fi/':'https://www.adsb.lol/docs/open-data/api';
+   sourceLink.textContent=result.source==='adsb.fi'?'Data: adsb.fi':'Data: adsb.lol (ODbL)';
+  }
   if(result.position)track.position=result.position;
   showAircraftPosition(track,result.position?'':'No current position received for '+track.registration+'.');
  }catch(error){
