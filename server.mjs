@@ -1,9 +1,12 @@
 import http from 'node:http';
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { createRequire } from 'node:module';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root=path.dirname(fileURLToPath(import.meta.url));
+const require=createRequire(import.meta.url);
+const {resolveAircraftIdentifier}=require('./aircraft-identifiers.cjs');
 const port=Number(process.env.PORT||3000);
 const cache=new Map();
 async function upstream(url,ttl=60000){
@@ -19,15 +22,9 @@ const aircraftFeeds=[
   {name:'adsb.fi',url:'https://opendata.adsb.fi/api/v2/registration/',callsignUrl:'https://opendata.adsb.fi/api/v2/callsign/',retryAt:0}
 ];
 let aircraftDay=-1,aircraftRequests=0;
-// Southwest's passenger-facing code WN (and shorthand SW) uses the ADS-B
-// callsign SWA; these codes are not aircraft registrations.
-function normalizeAircraftIdentifier(raw){
-  const id=String(raw||'').trim().toUpperCase();
-  if(/^WN[0-9]{1,5}[A-Z]?$/.test(id))return 'SWA'+id.slice(2);
-  if(/^SW[0-9]{1,5}[A-Z]?$/.test(id))return 'SWA'+id.slice(2);
-  return id;
-}
-const isAircraftCallsign=id=>/^[A-Z]{2,4}[0-9]{1,5}[A-Z]?$/.test(id);
+// Use a single resolver for the web app and server; keep registrations
+// separate from airlines' ADS-B flight callsigns.
+const isAircraftCallsign=id=>resolveAircraftIdentifier(id).kind==='callsign';
 async function readAircraftFeed(feed,registration){
   const now=Date.now();
   if(now<feed.retryAt)return {status:429,retryAt:feed.retryAt};
@@ -63,7 +60,6 @@ async function readAircraftFeed(feed,registration){
     groundspeed:Number.isFinite(plane?.gs)?plane.gs:null}};
 }
 async function aircraftPosition(registration){
-  registration=normalizeAircraftIdentifier(registration);
   const now=Date.now();
   const existing=aircraftLookups.get(registration);
   if(existing&&now-existing.at<50000)return existing.promise;
@@ -73,10 +69,10 @@ async function aircraftPosition(registration){
   if(now>=aircraftFeeds[0].retryAt)aircraftRequests++;
   const promise=(async()=>{
     const primary=await readAircraftFeed(aircraftFeeds[0],registration).catch(()=>({status:502}));
-    if(primary.status===200||process.env.WCD_COMMERCIAL_MODE==='true')return primary;
+    if((primary.status===200&&primary.position)||process.env.WCD_COMMERCIAL_MODE==='true')return primary;
     // adsb.fi permits its public feed for personal, noncommercial use.
     const fallback=await readAircraftFeed(aircraftFeeds[1],registration).catch(()=>({status:502}));
-    return fallback.status===502?primary:fallback;
+    return fallback.status===200&&fallback.position?fallback:primary.status===200?primary:fallback.status===502?primary:fallback;
   })();
   aircraftLookups.set(registration,{at:now,promise});
   if(aircraftLookups.size>128)aircraftLookups.delete(aircraftLookups.keys().next().value);
@@ -431,20 +427,23 @@ function extractNmsNotams(payload,airport){
   });
 }
 
-const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml'};
+const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.cjs':'text/javascript; charset=utf-8'};
 const server=http.createServer(async(req,res)=>{
   try{
     const u=new URL(req.url,`http://localhost:${port}`);
     if(u.pathname==='/api/aircraft'){
-      const registration=normalizeAircraftIdentifier(u.searchParams.get('reg'));
+      const identifier=resolveAircraftIdentifier(u.searchParams.get('reg'));
       const headers={'Content-Type':'application/json','Cache-Control':'no-store'};
-      if(registration.length<2||registration.length>12||!/^[A-Z0-9]+(?:-[A-Z0-9]+)?$/.test(registration)){
-        res.writeHead(400,headers);res.end(JSON.stringify({error:'Enter a valid tail number or flight callsign.'}));return;
+      if(identifier.error){
+        res.writeHead(400,headers);res.end(JSON.stringify({error:identifier.error}));return;
       }
-      const {status,position,retryAt,source}=await aircraftPosition(registration);
+      const {status,position,retryAt,source}=await aircraftPosition(identifier.lookup);
       if(retryAt)headers['Retry-After']=String(Math.max(1,Math.ceil((retryAt-Date.now())/1000)));
       res.writeHead(status,headers);
-      res.end(JSON.stringify(status===200?{registration,position,source}:{
+      res.end(JSON.stringify(status===200?{
+        requested:identifier.input,registration:identifier.lookup,
+        kind:identifier.kind,position,source
+      }:{
         error:status===429?'The free aircraft feed is rate limited.':'Aircraft positions temporarily unavailable.',
         retryAt
       }));return;
@@ -749,7 +748,7 @@ const server=http.createServer(async(req,res)=>{
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=60'});res.end(JSON.stringify(data));return;
     }
     const file=u.pathname==='/'?'index.html':(['/qds','/product','/landing'].includes(u.pathname)?'qds.html':u.pathname.slice(1));
-    if(!new Set(['index.html','app.js','style.css','qds.html','qds.css','qds.js']).has(file)){res.writeHead(404);res.end('Not found');return;}
+    if(!new Set(['index.html','app.js','aircraft-identifiers.cjs','style.css','qds.html','qds.css','qds.js']).has(file)){res.writeHead(404);res.end('Not found');return;}
     const filename=path.join(root,file);
     const content=await fs.readFile(filename);
     res.writeHead(200,{'Content-Type':types[path.extname(filename)]||'application/octet-stream','Cache-Control':'no-store, max-age=0, must-revalidate','Pragma':'no-cache','Expires':'0'});res.end(content);
