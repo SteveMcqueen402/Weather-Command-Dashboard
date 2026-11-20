@@ -247,6 +247,166 @@ $('#aircraft-tracker-form').addEventListener('submit',event=>{
  track.timer=setInterval(()=>refreshTrackedAircraft(track),60000);
  refreshTrackedAircraft(track);
 });
+const takeoffWatchKey='wc-takeoff-watch-v1';
+function validWatchTail(tail){
+ return typeof tail==='string'&&tail.length>=2&&tail.length<=12&&/^[A-Z0-9]+(?:-[A-Z0-9]+)?$/.test(tail);
+}
+const takeoffWatch=(()=>{
+ try{
+  const saved=JSON.parse(readPref(takeoffWatchKey,'[]'));
+  return Array.isArray(saved)?saved.filter(row=>validWatchTail(row?.tail)&&typeof row.nickname==='string'&&typeof row.enabled==='boolean'):[];
+ }catch{return []}
+})();
+const takeoffSamples=new Map();
+const takeoffMessages=new Map();
+let takeoffPolling=false,takeoffRetryAt=0,takeoffUnread=0,takeoffTimer=null;
+function renderTakeoffWatch(){
+ const list=$('.takeoff-watch-list');
+ if(!list)return;
+ list.replaceChildren();
+ if(!takeoffWatch.length){list.textContent='No saved aircraft yet.';return}
+ const form=$('.takeoff-watch-form');
+ for(const entry of takeoffWatch){
+  const row=document.createElement('div');
+  row.className='takeoff-watch-row';
+  const identity=document.createElement('div');
+  const name=document.createElement('strong');
+  name.textContent=entry.nickname?entry.nickname+' · '+entry.tail:entry.tail;
+  const detail=document.createElement('small');
+  detail.dataset.takeoffDetail=entry.tail;
+  detail.textContent=entry.enabled?(takeoffMessages.get(entry.tail)||'Waiting for an aircraft report'):'Takeoff alerts off';
+  identity.append(name,detail);
+  const toggle=document.createElement('button');
+  toggle.type='button';toggle.className='outline';
+  toggle.textContent=entry.enabled?'Pause':'Enable';
+  toggle.setAttribute('aria-label',toggle.textContent+' takeoff alerts for '+entry.tail);
+  toggle.onclick=()=>{
+   entry.enabled=!entry.enabled;
+   takeoffSamples.delete(entry.tail);
+   takeoffMessages.delete(entry.tail);
+   saveTakeoffWatch();
+  };
+  const edit=document.createElement('button');
+  edit.type='button';edit.className='outline';edit.textContent='Edit';
+  edit.setAttribute('aria-label','Edit '+entry.tail);
+  edit.onclick=()=>{
+   form.elements.registration.value=entry.tail;
+   form.elements.nickname.value=entry.nickname;
+   form.elements.enabled.checked=entry.enabled;
+   form.elements.nickname.focus();
+  };
+  const remove=document.createElement('button');
+  remove.type='button';remove.className='outline';remove.textContent='Remove';
+  remove.setAttribute('aria-label','Remove '+entry.tail);
+  remove.onclick=()=>{
+   takeoffWatch.splice(takeoffWatch.indexOf(entry),1);
+   takeoffSamples.delete(entry.tail);
+   takeoffMessages.delete(entry.tail);
+   saveTakeoffWatch();
+  };
+  row.append(identity,toggle,edit,remove);list.append(row);
+ }
+}
+function saveTakeoffWatch(){
+ writePref(takeoffWatchKey,JSON.stringify(takeoffWatch));
+ renderTakeoffWatch();
+ if(takeoffWatch.some(entry=>entry.enabled)){
+  if(takeoffTimer===null)takeoffTimer=setInterval(checkTakeoffWatch,120000);
+  checkTakeoffWatch();
+ }else{
+  clearInterval(takeoffTimer);
+  takeoffTimer=null;
+ }
+}
+function recordTakeoffSample(entry,position,now=Date.now()){
+ if(!position||!Number.isFinite(position.observedAt)||position.observedAt>now||now-position.observedAt>120000||
+    (position.altitude!=='ground'&&!Number.isFinite(position.altitude))){
+  takeoffMessages.set(entry.tail,'No fresh ground or airborne report');
+  return;
+ }
+ const previous=takeoffSamples.get(entry.tail);
+ if(previous&&position.observedAt<=previous.observedAt)return;
+ const onGround=position.altitude==='ground';
+ takeoffSamples.set(entry.tail,{onGround,observedAt:position.observedAt});
+ const time=new Date(position.observedAt).toISOString().slice(11,16)+'Z';
+ takeoffMessages.set(entry.tail,(onGround?'On ground':'Airborne')+' · '+time);
+ if(!onGround&&previous?.onGround&&position.observedAt-previous.observedAt<=15*60000&&
+    position.observedAt>(entry.lastAlertAt||0)){
+  entry.lastAlertAt=position.observedAt;
+  writePref(takeoffWatchKey,JSON.stringify(takeoffWatch));
+  const message='Takeoff detected: '+(entry.nickname?entry.nickname+' ('+entry.tail+')':entry.tail)+' · '+time;
+  text('#takeoff-notice',message);
+  text('.takeoff-watch-latest',message);
+  takeoffUnread++;
+  text('#takeoff-alerts','Takeoff Alerts ('+takeoffUnread+')');
+ }
+}
+async function checkTakeoffWatch(){
+ if(takeoffPolling||document.hidden||Date.now()<takeoffRetryAt)return;
+ const enabled=takeoffWatch.filter(entry=>entry.enabled);
+ if(!enabled.length)return;
+ takeoffPolling=true;
+ try{
+  for(const [index,entry] of enabled.entries()){
+   if(index)await new Promise(resolve=>setTimeout(resolve,1100));
+   if(document.hidden)break;
+   if(!entry.enabled||!takeoffWatch.includes(entry))continue;
+   try{
+    const response=await fetch('/api/aircraft?reg='+encodeURIComponent(entry.tail),{cache:'no-store'});
+    const result=await response.json();
+    if(response.status===429){
+     takeoffRetryAt=Math.max(Date.now()+120000,Number(result.retryAt)||0);
+     for(const row of enabled)takeoffMessages.set(row.tail,'Aircraft feed rate limited · will retry');
+     break;
+    }
+    if(!response.ok)throw Error('Aircraft feed unavailable');
+    if(entry.enabled&&takeoffWatch.includes(entry))recordTakeoffSample(entry,result.position);
+   }catch{
+    takeoffMessages.set(entry.tail,'Aircraft feed unavailable · will retry');
+   }
+  }
+ }finally{
+  takeoffPolling=false;
+  $$('[data-takeoff-detail]').forEach(detail=>{
+   const message=takeoffMessages.get(detail.dataset.takeoffDetail);
+   if(message)detail.textContent=message;
+  });
+ }
+}
+$('#takeoff-alerts').addEventListener('click',()=>{
+ const content=$('#takeoff-watch-template').content.firstElementChild.cloneNode(true);
+ const form=content.querySelector('form');
+ const registration=form.elements.registration;
+ registration.addEventListener('input',()=>registration.setCustomValidity(''));
+ form.addEventListener('submit',event=>{
+  event.preventDefault();
+  const tail=registration.value.trim().toUpperCase();
+  if(!validWatchTail(tail)){
+   registration.setCustomValidity('Enter a tail number such as N123AB or C-GABC.');
+   registration.reportValidity();
+   return;
+  }
+  const existing=takeoffWatch.find(entry=>entry.tail===tail);
+  const nickname=form.elements.nickname.value.trim();
+  const enabled=form.elements.enabled.checked;
+  if(existing){
+   if(existing.enabled!==enabled){takeoffSamples.delete(tail);takeoffMessages.delete(tail)}
+   Object.assign(existing,{nickname,enabled});
+  }else takeoffWatch.push({tail,nickname,enabled});
+  form.reset();
+  saveTakeoffWatch();
+ });
+ showModal('Takeoff Alerts',content);
+ takeoffUnread=0;
+ text('#takeoff-alerts','Takeoff Alerts');
+ text('.takeoff-watch-latest',$('#takeoff-notice').textContent);
+ renderTakeoffWatch();
+});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkTakeoffWatch()});
+if(takeoffWatch.some(entry=>entry.enabled)){
+ takeoffTimer=setInterval(checkTakeoffWatch,120000);
+ checkTakeoffWatch();
+}
 function watchModalMapSize(node,map){
  // Opening a modal and changing device orientation both alter Leaflet's viewport.
  const resize=()=>{if(current.modalMap===map&&map._container?.isConnected)map.invalidateSize({pan:false,debounceMoveend:true})};
