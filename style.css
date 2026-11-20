@@ -2579,3 +2579,14 @@ body.dashboard-fit.card-focus-open #modal{
 .filed-route-controls p{flex-basis:100%;margin:0;color:#efc9ff;font-size:12px;overflow-wrap:anywhere}
 .filed-route-controls p:empty{display:none}
 .filed-route-controls input{width:130px;padding:4px;border:1px solid #4d7da2;border-radius:5px;background:#091422;color:#f5faff;font-size:16px}
+
+.takeoff-notice{margin:0 0 8px;padding:8px 12px;border:1px solid #ba9230;border-radius:7px;background:#292210;color:#ffe691;font-weight:700}
+.takeoff-notice:empty,.takeoff-watch-latest:empty{display:none}
+.takeoff-watch-form,.takeoff-watch-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.takeoff-watch-form input:not([type=checkbox]){display:block;width:100%;padding:6px 8px;border:1px solid #4d7da2;border-radius:5px;background:#091422;color:#f5faff;font-size:16px}
+.takeoff-watch-check{display:flex;align-items:center;gap:5px}
+.takeoff-watch-row{padding:8px 0;border-top:1px solid #2d435b}
+.takeoff-watch-row>div{flex:1 1 175px;overflow-wrap:anywhere}
+.takeoff-watch-row small{display:block;color:#c4d6e8}
+.takeoff-watch-row button{padding:4px 8px}
+.takeoff-watch-latest{color:#ffe691}
