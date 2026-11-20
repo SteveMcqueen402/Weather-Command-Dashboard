@@ -56,3 +56,9 @@ Install the six files via GitHub Desktop; commit and push, then allow Render to 
 - Existing NOTAM throttling, data sources, and environment variables are unchanged.
 
 - Home Airport and Airport Lookup accept FAA local identifiers such as 84Y; do not add a K to identifiers containing digits. Winds Aloft requires an actual 3-letter FB forecast station, not an airport identifier. The UI now explains that distinction rather than inventing winds for 84Y.
+
+### Optional personal filed-route lookup
+
+The main aircraft tracker uses its existing live position feed. The **Filed Route** button makes a separate, on-demand FlightAware AeroAPI request for the selected tail number. Enable it on a personal deployment by setting `FLIGHTAWARE_API_KEY` and `WCD_FILED_ROUTE_ACCESS_CODE` in the server environment. Set the access code to a long, unique secret of your choice. Enter that code in the dashboard when prompted. Keep the AeroAPI key on the server. The personal feature is disabled in commercial mode.
+
+The server verifies account-wide reported usage before making paid calls and pauses at a conservative threshold of $4.50, reserving for recent requests while FlightAware updates its usage meter. It requests no more than one result set for the aircraft record and makes a waypoint request only when it finds a filed route for an active or upcoming flight. The budget check covers dashboard requests and uses delayed account reporting. FlightAware bills independently and other applications using the account can consume the same allowance.

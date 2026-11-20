@@ -73,6 +73,7 @@ $$('[data-map]').forEach(btn=>btn.addEventListener('click',()=>mapMode(btn.datas
 const aircraftPanel=$('#aircraft-tracker');
 const aircraftInput=$('#aircraft-registration');
 const aircraftMarkers=new WeakMap();
+const filedRouteLayers=new WeakMap();
 let aircraftTrack=null,aircraftExpandedMap=null;
 function drawTrackedAircraft(map,position,center=false){
  if(!map)return;
@@ -92,12 +93,82 @@ function drawTrackedAircraft(map,position,center=false){
  marker.setOpacity(stale?.55:1);
  if(center)map.setView(coords,Math.max(map.getZoom(),8));
 }
+function drawFiledRoute(map,route,fit=false){
+ if(!map)return;
+ filedRouteLayers.get(map)?.remove();
+ filedRouteLayers.delete(map);
+ if(!route)return;
+ const segments=[[]];
+ for(const point of route.fixes){
+  if(point)segments.at(-1).push(point);
+  else if(segments.at(-1).length)segments.push([]);
+ }
+ const lines=segments.filter(segment=>segment.length>1);
+ if(!lines.length)return;
+ const layer=L.polyline(lines,{color:'#ec9aff',weight:4,dashArray:'9 7',interactive:false}).addTo(map);
+ filedRouteLayers.set(map,layer);
+ if(fit){
+  const bounds=layer.getBounds();
+  if(aircraftTrack?.position)bounds.extend([aircraftTrack.position.lat,aircraftTrack.position.lon]);
+  map.fitBounds(bounds.pad(.12),{maxZoom:10});
+ }
+}
+const filedRouteButton=$('#lookup-filed-route');
+const filedRouteAccess=$('#filed-route-access');
+const filedRouteCode=$('#filed-route-code');
+async function lookupFiledRoute(){
+ const track=aircraftTrack;
+ if(!track||track.routeController)return;
+ const controller=new AbortController();
+ track.routeController=controller;
+ filedRouteButton.disabled=true;
+ text('#filed-route-status','Checking FlightAware for a filed route…');
+ try{
+  const code=filedRouteCode.value.trim();
+  const response=await fetch('/api/aircraft/filed-route?reg='+encodeURIComponent(track.registration),{
+   signal:controller.signal,cache:'no-store',headers:code?{Authorization:'Bearer '+code}:{}
+  });
+  const result=await response.json();
+  if(track!==aircraftTrack)return;
+  filedRouteAccess.classList.toggle('hidden',response.status!==401);
+  if(response.status===401)filedRouteCode.focus();
+  if(!response.ok)throw Error(result.error||'Filed route unavailable.');
+  track.filedRoute=result.route;
+  if(result.route&&$('#main-map').classList.contains('hidden'))mapMode('radar');
+  drawFiledRoute(current.map,result.route,true);
+  drawFiledRoute(aircraftExpandedMap,result.route,true);
+  if(!result.route){
+   text('#filed-route-status','FlightAware has no filed route for an active or upcoming flight for '+track.registration+'.');
+   return;
+  }
+  const {flight,origin,destination,upcoming,filed}=result.route;
+  text('#filed-route-status',[
+   upcoming?'Upcoming filed route':'Active filed route',flight,origin&&destination?origin+' → '+destination:'',
+   filed,filedRouteLayers.has(current.map)?'Dashed purple line':'Map waypoints unavailable','Source: FlightAware'
+  ].filter(Boolean).join(' · '));
+ }catch(error){
+  if(track===aircraftTrack&&!controller.signal.aborted)text('#filed-route-status',error.message);
+ }finally{
+  if(track===aircraftTrack){track.routeController=null;filedRouteButton.disabled=false}
+ }
+}
+filedRouteButton.addEventListener('click',lookupFiledRoute);
+filedRouteCode.addEventListener('keydown',event=>{
+ if(event.key==='Enter'){event.preventDefault();lookupFiledRoute()}
+});
 function clearTrackedAircraft(){
  if(aircraftTrack){
   clearInterval(aircraftTrack.timer);
   aircraftTrack.controller?.abort();
+  aircraftTrack.routeController?.abort();
  }
  aircraftTrack=null;
+ filedRouteButton.disabled=false;
+ filedRouteAccess.classList.add('hidden');
+ $('#filed-route-controls').classList.add('hidden');
+ text('#filed-route-status','');
+ drawFiledRoute(current.map,null);
+ drawFiledRoute(aircraftExpandedMap,null);
  drawTrackedAircraft(current.map,null);
  drawTrackedAircraft(aircraftExpandedMap,null);
  $('#aircraft-external').classList.add('hidden');
@@ -172,6 +243,7 @@ $('#aircraft-tracker-form').addEventListener('submit',event=>{
  text('#aircraft-track-status','Looking up '+registration+'…');
  const track={registration,retryAt:0,position:null,controller:null};
  aircraftTrack=track;
+ $('#filed-route-controls').classList.remove('hidden');
  track.timer=setInterval(()=>refreshTrackedAircraft(track),60000);
  refreshTrackedAircraft(track);
 });
@@ -202,6 +274,7 @@ function modalMap(){
  const expandedMap=current.modalMap;
  aircraftExpandedMap=expandedMap;
  drawTrackedAircraft(expandedMap,aircraftTrack?.position);
+ drawFiledRoute(expandedMap,aircraftTrack?.filedRoute);
  expandedMap.once('unload',()=>{aircraftExpandedMap=null});
  watchModalMapSize(node,current.modalMap);
 }

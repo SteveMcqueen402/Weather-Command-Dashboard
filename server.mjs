@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,6 +69,66 @@ async function aircraftPosition(registration){
   aircraftLookups.set(registration,{at:now,promise});
   if(aircraftLookups.size>128)aircraftLookups.delete(aircraftLookups.keys().next().value);
   return promise;
+}
+const filedRouteCache=new Map();
+const recentRouteReservations=[];
+const flightAwareBase='https://aeroapi.flightaware.com/aeroapi';
+const flightAwareKey=process.env.FLIGHTAWARE_API_KEY?.trim();
+const filedRouteAccessCode=process.env.WCD_FILED_ROUTE_ACCESS_CODE?.trim();
+const filedRoutesEnabled=Boolean(flightAwareKey&&filedRouteAccessCode&&process.env.WCD_COMMERCIAL_MODE!=='true');
+const hashSecret=value=>createHash('sha256').update(value).digest();
+
+async function flightAwareGet(resource){
+  const response=await fetch(flightAwareBase+resource,{
+    headers:{'x-apikey':flightAwareKey,'Accept':'application/json'},
+    signal:AbortSignal.timeout(7000)
+  });
+  if(response.status===404)return null;
+  if(!response.ok)throw Error('FlightAware lookup unavailable. Check your AeroAPI key, access, or rate limits.');
+  return response.json();
+}
+async function reserveFiledRouteLookup(){
+  const now=new Date();
+  const monthStart=now.toISOString().slice(0,7)+'-01';
+  const usage=await flightAwareGet('/account/usage?start='+monthStart+'&all_keys=true');
+  if(!Number.isFinite(usage?.total_cost)||usage.total_cost<0)throw Error('Could not verify FlightAware usage. No route request was sent.');
+  // The account meter can lag. Reserve for both billable calls and leave headroom.
+  const since=Date.now()-20*60000;
+  while(recentRouteReservations.length&&recentRouteReservations[0]<since)recentRouteReservations.shift();
+  if(usage.total_cost+(recentRouteReservations.length+1)*0.015>4.50||recentRouteReservations.length>=10)
+    return false;
+  recentRouteReservations.push(Date.now());
+  return true;
+}
+async function readFiledRoute(registration){
+  const cached=filedRouteCache.get(registration);
+  if(cached&&Date.now()-cached.at<5*60000)return cached.promise;
+  const promise=(async()=>{
+    if(!await reserveFiledRouteLookup())return {status:429,error:'FlightAware lookup paused to protect the allowance. Check account usage or try later.'};
+    const now=Date.now();
+    const query=new URLSearchParams({ident_type:'registration',max_pages:'1',
+      start:new Date(now-24*3600000).toISOString(),end:new Date(now+3*3600000).toISOString()});
+    const data=await flightAwareGet('/flights/'+encodeURIComponent(registration)+'?'+query);
+    const flights=(data?.flights||[]).filter(f=>!f?.blocked&&!f?.cancelled&&!f?.actual_on&&!f?.actual_in&&
+      (!f?.registration||f.registration.toUpperCase()===registration)&&f?.fa_flight_id&&f?.route?.trim());
+    const airborne=flights.filter(f=>f.actual_off).sort((a,b)=>Date.parse(b.actual_off)-Date.parse(a.actual_off));
+    const upcoming=flights.filter(f=>!f.actual_off&&Date.parse(f.scheduled_out||f.scheduled_off)>=now)
+      .sort((a,b)=>Date.parse(a.scheduled_out||a.scheduled_off)-Date.parse(b.scheduled_out||b.scheduled_off));
+    const flight=airborne[0]||upcoming[0];
+    if(!flight)return {status:200,route:null};
+    const result=await flightAwareGet('/flights/'+encodeURIComponent(flight.fa_flight_id)+'/route');
+    const fixes=(result?.fixes||[]).map(f=>Number.isFinite(f.latitude)&&Math.abs(f.latitude)<=90&&
+      Number.isFinite(f.longitude)&&Math.abs(f.longitude)<=180?[f.latitude,f.longitude]:null);
+    return {status:200,route:{flight:flight.ident,origin:flight.origin?.code,
+      destination:flight.destination?.code,upcoming:!flight.actual_off,
+      departure:flight.actual_off||flight.scheduled_out||flight.scheduled_off,
+      filed:flight.route,fixes}};
+  })().catch(error=>({status:502,error:error.message}));
+  filedRouteCache.set(registration,{at:Date.now(),promise});
+  if(filedRouteCache.size>128)filedRouteCache.delete(filedRouteCache.keys().next().value);
+  const result=await promise;
+  if(result.status!==200&&filedRouteCache.get(registration)?.promise===promise)filedRouteCache.delete(registration);
+  return result;
 }
 // AWC publishes legacy FB winds/temperatures as fixed-width/text station rows.
 // This endpoint is distinct from the JSON METAR/TAF endpoints.
@@ -375,6 +436,23 @@ const server=http.createServer(async(req,res)=>{
         error:status===429?'The free aircraft feed is rate limited.':'Aircraft positions temporarily unavailable.',
         retryAt
       }));return;
+    }
+    if(u.pathname==='/api/aircraft/filed-route'){
+      const headers={'Content-Type':'application/json','Cache-Control':'no-store'};
+      const reply=(status,payload)=>{res.writeHead(status,headers);res.end(JSON.stringify(payload))};
+      if(req.method!=='GET'){reply(405,{error:'Method not allowed.'});return}
+      if(!filedRoutesEnabled){reply(503,{error:'Filed routes need a FlightAware key and a personal access code configured on the server.'});return}
+      const authorization=req.headers.authorization||'';
+      if(!authorization.startsWith('Bearer ')||
+         !timingSafeEqual(hashSecret(authorization.slice(7)),hashSecret(filedRouteAccessCode))){
+        reply(401,{error:'Enter your personal filed-route access code.'});return;
+      }
+      const registration=(u.searchParams.get('reg')||'').trim().toUpperCase();
+      if(registration.length<2||registration.length>12||!/^[A-Z0-9]+(?:-[A-Z0-9]+)?$/.test(registration)){
+        reply(400,{error:'Enter a valid aircraft tail number.'});return;
+      }
+      const {status,...payload}=await readFiledRoute(registration);
+      reply(status,payload);return;
     }
     if(u.pathname==='/api/provider-status'){
       // Public-safe operational overview. Never return API keys, tokens, or credentials.
