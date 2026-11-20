@@ -15,15 +15,24 @@ async function upstream(url,ttl=60000){
 }
 const aircraftLookups=new Map();
 const aircraftFeeds=[
-  {name:'adsb.lol',url:'https://api.adsb.lol/v2/reg/',retryAt:0},
-  {name:'adsb.fi',url:'https://opendata.adsb.fi/api/v2/registration/',retryAt:0}
+  {name:'adsb.lol',url:'https://api.adsb.lol/v2/reg/',callsignUrl:'https://api.adsb.lol/v2/callsign/',retryAt:0},
+  {name:'adsb.fi',url:'https://opendata.adsb.fi/api/v2/registration/',callsignUrl:'https://opendata.adsb.fi/api/v2/callsign/',retryAt:0}
 ];
 let aircraftDay=-1,aircraftRequests=0;
+// Southwest's passenger-facing code WN (and shorthand SW) uses the ADS-B
+// callsign SWA; these codes are not aircraft registrations.
+function normalizeAircraftIdentifier(raw){
+  const id=String(raw||'').trim().toUpperCase();
+  if(/^WN[0-9]{1,5}[A-Z]?$/.test(id))return 'SWA'+id.slice(2);
+  if(/^SW[0-9]{1,5}[A-Z]?$/.test(id))return 'SWA'+id.slice(2);
+  return id;
+}
+const isAircraftCallsign=id=>/^[A-Z]{2,4}[0-9]{1,5}[A-Z]?$/.test(id);
 async function readAircraftFeed(feed,registration){
   const now=Date.now();
   if(now<feed.retryAt)return {status:429,retryAt:feed.retryAt};
   if(feed.name==='adsb.fi')feed.retryAt=now+1050;
-  const response=await fetch(feed.url+encodeURIComponent(registration),{
+  const response=await fetch((isAircraftCallsign(registration)?feed.callsignUrl:feed.url)+encodeURIComponent(registration),{
     headers:{'Accept':'application/json','User-Agent':'WeatherCommandDashboard (aircraft map)'},
     signal:AbortSignal.timeout(5500)
   });
@@ -39,7 +48,9 @@ async function readAircraftFeed(feed,registration){
   if(!Array.isArray(data.ac))return {status:502};
   const hasPosition=a=>Number.isFinite(a?.lat)&&Math.abs(a.lat)<=90&&
     Number.isFinite(a.lon)&&Math.abs(a.lon)<=180&&Number.isFinite(a.seen_pos)&&a.seen_pos>=0;
-  const reports=data.ac.filter(a=>typeof a?.r==='string'&&a.r.trim().toUpperCase()===registration)
+  const reports=data.ac.filter(a=>isAircraftCallsign(registration)?
+    typeof a?.flight==='string'&&a.flight.trim().toUpperCase()===registration:
+    typeof a?.r==='string'&&a.r.trim().toUpperCase()===registration)
     .flatMap(plane=>hasPosition(plane)?[{fix:plane,plane}]:
       hasPosition(plane.lastPosition)?[{fix:plane.lastPosition,plane:null}]:[])
     .sort((a,b)=>a.fix.seen_pos-b.fix.seen_pos);
@@ -52,6 +63,7 @@ async function readAircraftFeed(feed,registration){
     groundspeed:Number.isFinite(plane?.gs)?plane.gs:null}};
 }
 async function aircraftPosition(registration){
+  registration=normalizeAircraftIdentifier(registration);
   const now=Date.now();
   const existing=aircraftLookups.get(registration);
   if(existing&&now-existing.at<50000)return existing.promise;
@@ -424,10 +436,10 @@ const server=http.createServer(async(req,res)=>{
   try{
     const u=new URL(req.url,`http://localhost:${port}`);
     if(u.pathname==='/api/aircraft'){
-      const registration=(u.searchParams.get('reg')||'').trim().toUpperCase();
+      const registration=normalizeAircraftIdentifier(u.searchParams.get('reg'));
       const headers={'Content-Type':'application/json','Cache-Control':'no-store'};
       if(registration.length<2||registration.length>12||!/^[A-Z0-9]+(?:-[A-Z0-9]+)?$/.test(registration)){
-        res.writeHead(400,headers);res.end(JSON.stringify({error:'Enter a valid aircraft tail number.'}));return;
+        res.writeHead(400,headers);res.end(JSON.stringify({error:'Enter a valid tail number or flight callsign.'}));return;
       }
       const {status,position,retryAt,source}=await aircraftPosition(registration);
       if(retryAt)headers['Retry-After']=String(Math.max(1,Math.ceil((retryAt-Date.now())/1000)));
