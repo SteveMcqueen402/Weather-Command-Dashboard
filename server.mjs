@@ -13,42 +13,58 @@ async function upstream(url,ttl=60000){
   const value=await res.json();cache.set(url,{value,at:Date.now()});return value;
 }
 const aircraftLookups=new Map();
-let aircraftRetryAt=0;
+const aircraftFeeds=[
+  {name:'adsb.lol',url:'https://api.adsb.lol/v2/reg/',retryAt:0},
+  {name:'adsb.fi',url:'https://opendata.adsb.fi/api/v2/registration/',retryAt:0}
+];
 let aircraftDay=-1,aircraftRequests=0;
+async function readAircraftFeed(feed,registration){
+  const now=Date.now();
+  if(now<feed.retryAt)return {status:429,retryAt:feed.retryAt};
+  if(feed.name==='adsb.fi')feed.retryAt=now+1050;
+  const response=await fetch(feed.url+encodeURIComponent(registration),{
+    headers:{'Accept':'application/json','User-Agent':'WeatherCommandDashboard (aircraft map)'},
+    signal:AbortSignal.timeout(5500)
+  });
+  if(response.status===429){
+    const header=response.headers.get('retry-after');
+    const seconds=Number(header);
+    feed.retryAt=Math.max(feed.retryAt,Date.now()+60000,
+      header&&Number.isFinite(seconds)?Date.now()+seconds*1000:Date.parse(header)||0);
+    return {status:429,retryAt:feed.retryAt};
+  }
+  if(!response.ok)return {status:502};
+  const data=await response.json();
+  if(!Array.isArray(data.ac))return {status:502};
+  const hasPosition=a=>Number.isFinite(a?.lat)&&Math.abs(a.lat)<=90&&
+    Number.isFinite(a.lon)&&Math.abs(a.lon)<=180&&Number.isFinite(a.seen_pos)&&a.seen_pos>=0;
+  const reports=data.ac.filter(a=>typeof a?.r==='string'&&a.r.trim().toUpperCase()===registration)
+    .flatMap(plane=>hasPosition(plane)?[{fix:plane,plane}]:
+      hasPosition(plane.lastPosition)?[{fix:plane.lastPosition,plane:null}]:[])
+    .sort((a,b)=>a.fix.seen_pos-b.fix.seen_pos);
+  const report=reports[0];
+  if(!report)return {status:200,position:null,source:feed.name};
+  const {fix,plane}=report;
+  const observedAt=Math.min(Date.now(),Number.isFinite(data.now)&&data.now>0?data.now:Date.now())-fix.seen_pos*1000;
+  return {status:200,source:feed.name,position:{lat:fix.lat,lon:fix.lon,observedAt,
+    altitude:plane?.alt_baro==='ground'?'ground':Number.isFinite(plane?.alt_baro)?plane.alt_baro:null,
+    groundspeed:Number.isFinite(plane?.gs)?plane.gs:null}};
+}
 async function aircraftPosition(registration){
   const now=Date.now();
   const existing=aircraftLookups.get(registration);
   if(existing&&now-existing.at<50000)return existing.promise;
   const day=Math.floor(now/86400000);
   if(day!==aircraftDay){aircraftDay=day;aircraftRequests=0}
-  if(aircraftRequests>=480)aircraftRetryAt=Math.max(aircraftRetryAt,(day+1)*86400000);
-  if(now<aircraftRetryAt)return {status:429,retryAt:aircraftRetryAt};
-  aircraftRequests++;
+  if(aircraftRequests>=480)aircraftFeeds[0].retryAt=Math.max(aircraftFeeds[0].retryAt,(day+1)*86400000);
+  if(now>=aircraftFeeds[0].retryAt)aircraftRequests++;
   const promise=(async()=>{
-    const response=await fetch('https://api.adsb.lol/v2/reg/'+encodeURIComponent(registration),{
-      headers:{'Accept':'application/json','User-Agent':'WeatherCommandDashboard (aircraft map)'},
-      signal:AbortSignal.timeout(8000)
-    });
-    if(response.status===429){
-      const header=response.headers.get('retry-after');
-      const seconds=Number(header);
-      aircraftRetryAt=Math.max(aircraftRetryAt,Date.now()+60000,
-        header&&Number.isFinite(seconds)?Date.now()+seconds*1000:Date.parse(header)||0);
-      return {status:429,retryAt:aircraftRetryAt};
-    }
-    if(!response.ok)throw Error('Aircraft feed unavailable');
-    const data=await response.json();
-    if(!Array.isArray(data.ac))throw Error('Invalid aircraft feed response');
-    const plane=data.ac.filter(a=>typeof a?.r==='string'&&a.r.trim().toUpperCase()===registration&&
-      Number.isFinite(a.lat)&&Math.abs(a.lat)<=90&&Number.isFinite(a.lon)&&Math.abs(a.lon)<=180&&
-      Number.isFinite(a.seen_pos)&&a.seen_pos>=0)
-      .sort((a,b)=>a.seen_pos-b.seen_pos)[0];
-    if(!plane)return {status:200,position:null};
-    const observedAt=Math.min(Date.now(),Number.isFinite(data.now)&&data.now>0?data.now:Date.now())-plane.seen_pos*1000;
-    return {status:200,position:{lat:plane.lat,lon:plane.lon,observedAt,
-      altitude:plane.alt_baro==='ground'?'ground':Number.isFinite(plane.alt_baro)?plane.alt_baro:null,
-      groundspeed:Number.isFinite(plane.gs)?plane.gs:null}};
-  })().catch(()=>({status:502}));
+    const primary=await readAircraftFeed(aircraftFeeds[0],registration).catch(()=>({status:502}));
+    if(primary.status===200||process.env.WCD_COMMERCIAL_MODE==='true')return primary;
+    // adsb.fi permits its public feed for personal, noncommercial use.
+    const fallback=await readAircraftFeed(aircraftFeeds[1],registration).catch(()=>({status:502}));
+    return fallback.status===502?primary:fallback;
+  })();
   aircraftLookups.set(registration,{at:now,promise});
   if(aircraftLookups.size>128)aircraftLookups.delete(aircraftLookups.keys().next().value);
   return promise;
@@ -352,10 +368,10 @@ const server=http.createServer(async(req,res)=>{
       if(registration.length<2||registration.length>12||!/^[A-Z0-9]+(?:-[A-Z0-9]+)?$/.test(registration)){
         res.writeHead(400,headers);res.end(JSON.stringify({error:'Enter a valid aircraft tail number.'}));return;
       }
-      const {status,position,retryAt}=await aircraftPosition(registration);
+      const {status,position,retryAt,source}=await aircraftPosition(registration);
       if(retryAt)headers['Retry-After']=String(Math.max(1,Math.ceil((retryAt-Date.now())/1000)));
       res.writeHead(status,headers);
-      res.end(JSON.stringify(status===200?{registration,position}:{
+      res.end(JSON.stringify(status===200?{registration,position,source}:{
         error:status===429?'The free aircraft feed is rate limited.':'Aircraft positions temporarily unavailable.',
         retryAt
       }));return;
