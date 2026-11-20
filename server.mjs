@@ -12,6 +12,47 @@ async function upstream(url,ttl=60000){
   if(!res.ok)throw Error(`Upstream service returned ${res.status}`);
   const value=await res.json();cache.set(url,{value,at:Date.now()});return value;
 }
+const aircraftLookups=new Map();
+let aircraftRetryAt=0;
+let aircraftDay=-1,aircraftRequests=0;
+async function aircraftPosition(registration){
+  const now=Date.now();
+  const existing=aircraftLookups.get(registration);
+  if(existing&&now-existing.at<50000)return existing.promise;
+  const day=Math.floor(now/86400000);
+  if(day!==aircraftDay){aircraftDay=day;aircraftRequests=0}
+  if(aircraftRequests>=480)aircraftRetryAt=Math.max(aircraftRetryAt,(day+1)*86400000);
+  if(now<aircraftRetryAt)return {status:429,retryAt:aircraftRetryAt};
+  aircraftRequests++;
+  const promise=(async()=>{
+    const response=await fetch('https://api.adsb.lol/v2/reg/'+encodeURIComponent(registration),{
+      headers:{'Accept':'application/json','User-Agent':'WeatherCommandDashboard (aircraft map)'},
+      signal:AbortSignal.timeout(8000)
+    });
+    if(response.status===429){
+      const header=response.headers.get('retry-after');
+      const seconds=Number(header);
+      aircraftRetryAt=Math.max(aircraftRetryAt,Date.now()+60000,
+        header&&Number.isFinite(seconds)?Date.now()+seconds*1000:Date.parse(header)||0);
+      return {status:429,retryAt:aircraftRetryAt};
+    }
+    if(!response.ok)throw Error('Aircraft feed unavailable');
+    const data=await response.json();
+    if(!Array.isArray(data.ac))throw Error('Invalid aircraft feed response');
+    const plane=data.ac.filter(a=>typeof a?.r==='string'&&a.r.trim().toUpperCase()===registration&&
+      Number.isFinite(a.lat)&&Math.abs(a.lat)<=90&&Number.isFinite(a.lon)&&Math.abs(a.lon)<=180&&
+      Number.isFinite(a.seen_pos)&&a.seen_pos>=0)
+      .sort((a,b)=>a.seen_pos-b.seen_pos)[0];
+    if(!plane)return {status:200,position:null};
+    const observedAt=Math.min(Date.now(),Number.isFinite(data.now)&&data.now>0?data.now:Date.now())-plane.seen_pos*1000;
+    return {status:200,position:{lat:plane.lat,lon:plane.lon,observedAt,
+      altitude:plane.alt_baro==='ground'?'ground':Number.isFinite(plane.alt_baro)?plane.alt_baro:null,
+      groundspeed:Number.isFinite(plane.gs)?plane.gs:null}};
+  })().catch(()=>({status:502}));
+  aircraftLookups.set(registration,{at:now,promise});
+  if(aircraftLookups.size>128)aircraftLookups.delete(aircraftLookups.keys().next().value);
+  return promise;
+}
 // AWC publishes legacy FB winds/temperatures as fixed-width/text station rows.
 // This endpoint is distinct from the JSON METAR/TAF endpoints.
 const windTableCache=new Map();
@@ -305,6 +346,20 @@ const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8'
 const server=http.createServer(async(req,res)=>{
   try{
     const u=new URL(req.url,`http://localhost:${port}`);
+    if(u.pathname==='/api/aircraft'){
+      const registration=(u.searchParams.get('reg')||'').trim().toUpperCase();
+      const headers={'Content-Type':'application/json','Cache-Control':'no-store'};
+      if(registration.length<2||registration.length>12||!/^[A-Z0-9]+(?:-[A-Z0-9]+)?$/.test(registration)){
+        res.writeHead(400,headers);res.end(JSON.stringify({error:'Enter a valid aircraft tail number.'}));return;
+      }
+      const {status,position,retryAt}=await aircraftPosition(registration);
+      if(retryAt)headers['Retry-After']=String(Math.max(1,Math.ceil((retryAt-Date.now())/1000)));
+      res.writeHead(status,headers);
+      res.end(JSON.stringify(status===200?{registration,position}:{
+        error:status===429?'The free aircraft feed is rate limited.':'Aircraft positions temporarily unavailable.',
+        retryAt
+      }));return;
+    }
     if(u.pathname==='/api/provider-status'){
       // Public-safe operational overview. Never return API keys, tokens, or credentials.
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
