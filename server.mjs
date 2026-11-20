@@ -57,7 +57,9 @@ async function readAircraftFeed(feed,registration){
   const observedAt=Math.min(Date.now(),Number.isFinite(data.now)&&data.now>0?data.now:Date.now())-fix.seen_pos*1000;
   return {status:200,source:feed.name,position:{lat:fix.lat,lon:fix.lon,observedAt,
     altitude:plane?.alt_baro==='ground'?'ground':Number.isFinite(plane?.alt_baro)?plane.alt_baro:null,
-    groundspeed:Number.isFinite(plane?.gs)?plane.gs:null}};
+    groundspeed:Number.isFinite(plane?.gs)?plane.gs:null,
+    tail:typeof plane?.r==='string'?plane.r.trim().toUpperCase():null,
+    callsign:typeof plane?.flight==='string'?plane.flight.trim().toUpperCase():null}};
 }
 async function aircraftPosition(registration){
   const now=Date.now();
