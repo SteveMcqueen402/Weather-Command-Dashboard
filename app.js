@@ -70,14 +70,10 @@ function mapMode(mode){
  }
  $('#play-radar')?.classList.toggle('hidden',mode!=='radar'&&mode!=='route');$('#map-chart').classList.add('hidden');$('#main-map').classList.remove('hidden');$('#chart-unavailable').classList.add('hidden');removeMainLayers();if(mode==='radar'){current.map.setView(homeCoords(),current.mapStyle==='sectional'?8:6);current.mapLayer=addRadarLayer(current.map);$('#map-source').href='https://radar.weather.gov/';text('#map-source','NOAA radar ↗')}else if(mode==='route'){current.routeLayer=drawRouteOn(current.map);if(current.routeRadarOn)current.mapLayer=addRadarLayer(current.map);text('#map-caption','Straight-line planning display; not an approved flight route');$('#map-source').href='https://aviationweather.gov/';text('#map-source','Aviation Weather Center ↗');}else{const c=charts[mode];if(!c)return;$('#main-map').classList.add('hidden');$('#map-chart').classList.remove('hidden');const image=$('#map-chart-image');image.style.display='block';image.src=c.image+(c.image.includes('?')?'&':'?')+'v='+Math.floor(Date.now()/900000);image.alt=c.name;image.onerror=()=>{image.style.display='none';$('#chart-unavailable').classList.remove('hidden')};$('#map-source').href=c.source;text('#map-source','Official source ↗');text('#map-caption',c.name+' · verify analysis/valid time on chart')}if(mode==='radar'||mode==='route'){if(aircraftTrack?.position)drawTrackedAircraft(current.map,aircraftTrack.position,mode==='radar');setTimeout(()=>{current.map.invalidateSize({pan:false});current.mapLayer?.redraw()},220);setTimeout(()=>current.map.invalidateSize({pan:false}),1000)}}
 $$('[data-map]').forEach(btn=>btn.addEventListener('click',()=>mapMode(btn.dataset.map)));
-// Southwest flight numbers WN3475 or SW3475 resolve to ADS-B callsign SWA3475.
-function normalizeTrackedAircraftId(raw){
- const id=String(raw||'').trim().toUpperCase();
- if(/^WN[0-9]{1,5}[A-Z]?$/.test(id))return 'SWA'+id.slice(2);
- if(/^SW[0-9]{1,5}[A-Z]?$/.test(id))return 'SWA'+id.slice(2);
- return id;
-}
-const isTrackedCallsign=id=>/^[A-Z]{2,4}[0-9]{1,5}[A-Z]?$/.test(id);
+// The same IATA / ICAO / GA identifier rules are used by the server.
+const {resolveAircraftIdentifier}=window.AircraftIdentifiers;
+const normalizeTrackedAircraftId=raw=>resolveAircraftIdentifier(raw).lookup;
+const isTrackedCallsign=id=>resolveAircraftIdentifier(id).kind==='callsign';
 const aircraftPanel=$('#aircraft-tracker');
 const aircraftInput=$('#aircraft-registration');
 const aircraftMarkers=new WeakMap();
@@ -180,7 +176,7 @@ function clearTrackedAircraft(){
  drawTrackedAircraft(current.map,null);
  drawTrackedAircraft(aircraftExpandedMap,null);
  $('#aircraft-external').classList.add('hidden');
- text('#aircraft-track-status','Enter a tail number to show the aircraft on this map.');
+ text('#aircraft-track-status','Enter a GA tail number or airline flight number to see live ADS-B positions.');
 }
 function showAircraftPosition(track,notice=''){
  const firstPosition=!aircraftMarkers.has(current.map);
@@ -189,7 +185,10 @@ function showAircraftPosition(track,notice=''){
  if(!track.position){text('#aircraft-track-status',notice);return}
  const {altitude,groundspeed,observedAt}=track.position;
  const stale=Date.now()-observedAt>120000||Boolean(notice);
- const details=[track.registration,altitude==='ground'?'On ground':altitude==null?'':altitude.toLocaleString()+' ft',
+ const identifier=track.requested&&track.requested!==track.registration?
+  track.requested+' ('+track.registration+')':track.registration;
+ const details=[identifier,track.position.tail&&track.position.tail!==track.registration?'Tail '+track.position.tail:'',
+  altitude==='ground'?'On ground':altitude==null?'':altitude.toLocaleString()+' ft',
   groundspeed==null?'':Math.round(groundspeed)+' kt GS',
   (stale?'Last known position':'Position reported')+' '+new Date(observedAt).toISOString().slice(11,19)+'Z',notice];
  text('#aircraft-track-status',details.filter(Boolean).join(' · '));
@@ -210,7 +209,7 @@ async function refreshTrackedAircraft(track){
    sourceLink.textContent=result.source==='adsb.fi'?'Data: adsb.fi':'Data: adsb.lol (ODbL)';
   }
   if(result.position)track.position=result.position;
-  showAircraftPosition(track,result.position?'':'No current position received for '+track.registration+'.');
+  showAircraftPosition(track,result.position?'':'No live ADS-B position yet for '+(track.requested||track.registration)+'. The aircraft may be parked, not transmitting, or using a different operating callsign.');
  }catch(error){
   if(track===aircraftTrack&&!controller.signal.aborted)showAircraftPosition(track,error.message||'Aircraft feed unavailable.');
  }finally{
@@ -236,29 +235,28 @@ $('#clear-aircraft').addEventListener('click',()=>{
 aircraftInput.addEventListener('input',()=>aircraftInput.setCustomValidity(''));
 $('#aircraft-tracker-form').addEventListener('submit',event=>{
  event.preventDefault();
- const registration=normalizeTrackedAircraftId(aircraftInput.value);
- if(registration.length<2||registration.length>12||!/^[A-Z0-9]+(?:-[A-Z0-9]+)?$/.test(registration)){
-  aircraftInput.setCustomValidity('Enter a tail number or flight callsign such as N123AB or WN3475.');
+ const resolved=resolveAircraftIdentifier(aircraftInput.value);
+ const registration=resolved.lookup;
+ if(resolved.error){
+  aircraftInput.setCustomValidity(resolved.error);
   aircraftInput.reportValidity();
   return;
  }
  if($('#main-map').classList.contains('hidden'))mapMode('radar');
  clearTrackedAircraft();
- aircraftInput.value=registration;
+ aircraftInput.value=resolved.input;
  const fallback=$('#aircraft-external');
  fallback.href='https://globe.adsbexchange.com/?reg='+encodeURIComponent(registration);
  fallback.classList.toggle('hidden',isTrackedCallsign(registration));
- text('#aircraft-track-status','Looking up '+registration+'…');
- const track={registration,retryAt:0,position:null,controller:null};
+ text('#aircraft-track-status','Looking up '+resolved.input+(resolved.input===registration?'':' as '+registration)+'…');
+ const track={registration,requested:resolved.input,kind:resolved.kind,retryAt:0,position:null,controller:null};
  aircraftTrack=track;
  $('#filed-route-controls').classList.toggle('hidden',isTrackedCallsign(registration));
  track.timer=setInterval(()=>refreshTrackedAircraft(track),60000);
  refreshTrackedAircraft(track);
 });
 const takeoffWatchKey='wc-takeoff-watch-v1';
-function validWatchTail(tail){
- return typeof tail==='string'&&tail.length>=2&&tail.length<=12&&/^[A-Z0-9]+(?:-[A-Z0-9]+)?$/.test(tail);
-}
+function validWatchTail(tail){return Boolean(resolveAircraftIdentifier(tail).lookup)}
 const takeoffWatch=(()=>{
  try{
   const saved=JSON.parse(readPref(takeoffWatchKey,'[]'));
@@ -408,9 +406,10 @@ $('#takeoff-alerts').addEventListener('click',()=>{
  });
  form.addEventListener('submit',event=>{
   event.preventDefault();
-  const tail=normalizeTrackedAircraftId(registration.value);
-  if(!validWatchTail(tail)){
-   registration.setCustomValidity('Enter a tail number or flight callsign such as N123AB or WN3475.');
+  const resolved=resolveAircraftIdentifier(registration.value);
+  const tail=resolved.lookup;
+  if(resolved.error){
+   registration.setCustomValidity(resolved.error);
    registration.reportValidity();
    return;
   }
