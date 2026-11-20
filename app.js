@@ -70,6 +70,14 @@ function mapMode(mode){
  }
  $('#play-radar')?.classList.toggle('hidden',mode!=='radar'&&mode!=='route');$('#map-chart').classList.add('hidden');$('#main-map').classList.remove('hidden');$('#chart-unavailable').classList.add('hidden');removeMainLayers();if(mode==='radar'){current.map.setView(homeCoords(),current.mapStyle==='sectional'?8:6);current.mapLayer=addRadarLayer(current.map);$('#map-source').href='https://radar.weather.gov/';text('#map-source','NOAA radar ↗')}else if(mode==='route'){current.routeLayer=drawRouteOn(current.map);if(current.routeRadarOn)current.mapLayer=addRadarLayer(current.map);text('#map-caption','Straight-line planning display; not an approved flight route');$('#map-source').href='https://aviationweather.gov/';text('#map-source','Aviation Weather Center ↗');}else{const c=charts[mode];if(!c)return;$('#main-map').classList.add('hidden');$('#map-chart').classList.remove('hidden');const image=$('#map-chart-image');image.style.display='block';image.src=c.image+(c.image.includes('?')?'&':'?')+'v='+Math.floor(Date.now()/900000);image.alt=c.name;image.onerror=()=>{image.style.display='none';$('#chart-unavailable').classList.remove('hidden')};$('#map-source').href=c.source;text('#map-source','Official source ↗');text('#map-caption',c.name+' · verify analysis/valid time on chart')}if(mode==='radar'||mode==='route'){if(aircraftTrack?.position)drawTrackedAircraft(current.map,aircraftTrack.position,mode==='radar');setTimeout(()=>{current.map.invalidateSize({pan:false});current.mapLayer?.redraw()},220);setTimeout(()=>current.map.invalidateSize({pan:false}),1000)}}
 $$('[data-map]').forEach(btn=>btn.addEventListener('click',()=>mapMode(btn.dataset.map)));
+// Southwest flight numbers WN3475 or SW3475 resolve to ADS-B callsign SWA3475.
+function normalizeTrackedAircraftId(raw){
+ const id=String(raw||'').trim().toUpperCase();
+ if(/^WN[0-9]{1,5}[A-Z]?$/.test(id))return 'SWA'+id.slice(2);
+ if(/^SW[0-9]{1,5}[A-Z]?$/.test(id))return 'SWA'+id.slice(2);
+ return id;
+}
+const isTrackedCallsign=id=>/^[A-Z]{2,4}[0-9]{1,5}[A-Z]?$/.test(id);
 const aircraftPanel=$('#aircraft-tracker');
 const aircraftInput=$('#aircraft-registration');
 const aircraftMarkers=new WeakMap();
@@ -228,9 +236,9 @@ $('#clear-aircraft').addEventListener('click',()=>{
 aircraftInput.addEventListener('input',()=>aircraftInput.setCustomValidity(''));
 $('#aircraft-tracker-form').addEventListener('submit',event=>{
  event.preventDefault();
- const registration=aircraftInput.value.trim().toUpperCase();
+ const registration=normalizeTrackedAircraftId(aircraftInput.value);
  if(registration.length<2||registration.length>12||!/^[A-Z0-9]+(?:-[A-Z0-9]+)?$/.test(registration)){
-  aircraftInput.setCustomValidity('Enter a tail number such as N123AB or C-GABC.');
+  aircraftInput.setCustomValidity('Enter a tail number or flight callsign such as N123AB or WN3475.');
   aircraftInput.reportValidity();
   return;
  }
@@ -239,11 +247,11 @@ $('#aircraft-tracker-form').addEventListener('submit',event=>{
  aircraftInput.value=registration;
  const fallback=$('#aircraft-external');
  fallback.href='https://globe.adsbexchange.com/?reg='+encodeURIComponent(registration);
- fallback.classList.remove('hidden');
+ fallback.classList.toggle('hidden',isTrackedCallsign(registration));
  text('#aircraft-track-status','Looking up '+registration+'…');
  const track={registration,retryAt:0,position:null,controller:null};
  aircraftTrack=track;
- $('#filed-route-controls').classList.remove('hidden');
+ $('#filed-route-controls').classList.toggle('hidden',isTrackedCallsign(registration));
  track.timer=setInterval(()=>refreshTrackedAircraft(track),60000);
  refreshTrackedAircraft(track);
 });
@@ -254,7 +262,7 @@ function validWatchTail(tail){
 const takeoffWatch=(()=>{
  try{
   const saved=JSON.parse(readPref(takeoffWatchKey,'[]'));
-  return Array.isArray(saved)?saved.filter(row=>validWatchTail(row?.tail)&&typeof row.nickname==='string'&&typeof row.enabled==='boolean'):[];
+  return Array.isArray(saved)?saved.filter(row=>validWatchTail(row?.tail)&&typeof row.nickname==='string'&&typeof row.enabled==='boolean').map(row=>({...row,tail:normalizeTrackedAircraftId(row.tail)})):[];
  }catch{return []}
 })();
 const takeoffSamples=new Map();
@@ -318,6 +326,20 @@ function saveTakeoffWatch(){
   takeoffTimer=null;
  }
 }
+function requestTakeoffNotificationPermission(){
+ if(!('Notification' in window))return Promise.resolve('unsupported');
+ if(Notification.permission!=='default')return Promise.resolve(Notification.permission);
+ try{return Promise.resolve(Notification.requestPermission())}
+ catch{return Promise.resolve('blocked')}
+}
+function showTakeoffBrowserNotification(message,tag){
+ if(!('Notification' in window)||Notification.permission!=='granted')return false;
+ try{
+  const notification=new Notification('Weather Command · Takeoff Alert',{body:message,tag});
+  notification.onclick=()=>{window.focus();notification.close()};
+  return true;
+ }catch{return false}
+}
 function recordTakeoffSample(entry,position,now=Date.now()){
  if(!position||!Number.isFinite(position.observedAt)||position.observedAt>now||now-position.observedAt>120000||
     (position.altitude!=='ground'&&!Number.isFinite(position.altitude))){
@@ -337,19 +359,19 @@ function recordTakeoffSample(entry,position,now=Date.now()){
   const message='Takeoff detected: '+(entry.nickname?entry.nickname+' ('+entry.tail+')':entry.tail)+' · '+time;
   text('#takeoff-notice',message);
   text('.takeoff-watch-latest',message);
+  showTakeoffBrowserNotification(message,'wc-takeoff-'+entry.tail);
   takeoffUnread++;
   text('#takeoff-alerts','Takeoff Alerts ('+takeoffUnread+')');
  }
 }
 async function checkTakeoffWatch(){
- if(takeoffPolling||document.hidden||Date.now()<takeoffRetryAt)return;
+ if(takeoffPolling||Date.now()<takeoffRetryAt)return;
  const enabled=takeoffWatch.filter(entry=>entry.enabled);
  if(!enabled.length)return;
  takeoffPolling=true;
  try{
   for(const [index,entry] of enabled.entries()){
    if(index)await new Promise(resolve=>setTimeout(resolve,1100));
-   if(document.hidden)break;
    if(!entry.enabled||!takeoffWatch.includes(entry))continue;
    try{
     const response=await fetch('/api/aircraft?reg='+encodeURIComponent(entry.tail),{cache:'no-store'});
@@ -378,17 +400,24 @@ $('#takeoff-alerts').addEventListener('click',()=>{
  const form=content.querySelector('form');
  const registration=form.elements.registration;
  registration.addEventListener('input',()=>registration.setCustomValidity(''));
+ content.querySelector('.takeoff-test-button')?.addEventListener('click',()=>{
+  requestTakeoffNotificationPermission().then(permission=>{
+   const sent=permission==='granted'&&showTakeoffBrowserNotification('This is a test browser notification.','wc-test-takeoff');
+   text('.takeoff-watch-latest',sent?'Test notification sent.':'Browser notification unavailable or permission denied. In-page alerts still work while this tab is open.');
+  });
+ });
  form.addEventListener('submit',event=>{
   event.preventDefault();
-  const tail=registration.value.trim().toUpperCase();
+  const tail=normalizeTrackedAircraftId(registration.value);
   if(!validWatchTail(tail)){
-   registration.setCustomValidity('Enter a tail number such as N123AB or C-GABC.');
+   registration.setCustomValidity('Enter a tail number or flight callsign such as N123AB or WN3475.');
    registration.reportValidity();
    return;
   }
   const existing=takeoffWatch.find(entry=>entry.tail===tail);
   const nickname=form.elements.nickname.value.trim();
   const enabled=form.elements.enabled.checked;
+  if(enabled)requestTakeoffNotificationPermission();
   if(existing){
    if(existing.enabled!==enabled){takeoffSamples.delete(tail);takeoffMessages.delete(tail)}
    Object.assign(existing,{nickname,enabled});
