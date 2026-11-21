@@ -55,6 +55,18 @@ jobs:
               node --check /tmp/live-app.js || exit 1
               grep -q '<title>Weather Command' /tmp/live-index.html || exit 1
               grep -q 'window.AircraftIdentifiers' /tmp/live-identifiers.cjs || exit 1
+              if cmp -s /tmp/live-app.js app.js; then
+                echo "Live app.js matches the repository"
+              else
+                echo "::warning::Live app.js differs from GitHub main (Render may be serving an older deployment)"
+                sha256sum /tmp/live-app.js app.js
+              fi
+              if cmp -s /tmp/live-index.html index.html; then
+                echo "Live index.html matches the repository"
+              else
+                echo "::warning::Live index.html differs from GitHub main"
+                sha256sum /tmp/live-index.html index.html
+              fi
               echo "Live Render dashboard and browser code healthy"
               exit 0
             fi
@@ -62,3 +74,27 @@ jobs:
           done
           echo "Render deployment did not pass health and asset checks"
           exit 1
+      - name: Inspect production weather data feeds
+        if: always()
+        env:
+          LIVE_URL: https://weather-command-dashboard.onrender.com
+        run: |
+          while IFS='|' read -r label endpoint; do
+            if [ -z "$label" ]; then continue; fi
+            echo "::group::$label"
+            status=$(curl -L -sS -o /tmp/feed-response -w '%{http_code}' --connect-timeout 8 --max-time 40 "$LIVE_URL$endpoint" || true)
+            echo "$label HTTP $status"
+            if [ -f /tmp/feed-response ]; then
+              head -c 700 /tmp/feed-response
+              echo
+            fi
+            if [ "$status" != "200" ]; then echo "::warning::$label did not return HTTP 200 (status $status)"; fi
+            echo "::endgroup::"
+          done <<'FEEDS'
+          METAR_TAF_AIRPORT|/api/airport-route?ids=KOMA
+          NWS_FORECAST|/api/location-forecast?lat=41.301&lon=-95.894
+          NWS_ALERTS|/api/home-alerts?lat=41.301&lon=-95.894
+          AVIATION_HAZARDS|/api/aviation-hazards?station=KOMA&lat=41.301&lon=-95.894
+          RADAR|/api/radar
+          PROVIDER_STATUS|/api/provider-status
+          FEEDS
