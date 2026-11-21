@@ -1,4 +1,7 @@
 'use strict';
+// Isolate shared resolver bindings from the dashboard's classic script scope.
+// The resolver is still exposed through window.AircraftIdentifiers and Node exports.
+(function(){
 // Shared browser/Node resolver for live ADS-B aircraft lookup.
 // Airline ticket numbers use IATA's 2-character code; ADS-B broadcasts an
 // operator's ICAO callsign, which may differ for codeshares and regional flights.
@@ -46,3 +49,4 @@ function resolveAircraftIdentifier(raw){
 const AircraftIdentifiers=Object.freeze({airlineCodes,resolveAircraftIdentifier});
 if(typeof module!=='undefined'&&module.exports)module.exports=AircraftIdentifiers;
 if(typeof window!=='undefined')window.AircraftIdentifiers=AircraftIdentifiers;
+})();
