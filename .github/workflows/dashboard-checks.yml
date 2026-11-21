@@ -98,3 +98,34 @@ jobs:
           RADAR|/api/radar
           PROVIDER_STATUS|/api/provider-status
           FEEDS
+
+      - name: Browser smoke test of live dashboard
+        env:
+          LIVE_URL: https://weather-command-dashboard.onrender.com
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install chromium
+          node --input-type=module <<'BROWSER_TEST'
+          import {chromium} from 'playwright';
+          const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+          const page=await browser.newPage({viewport:{width:1440,height:900}});
+          const pageErrors=[];
+          page.on('pageerror',error=>pageErrors.push(error.message));
+          try{
+            const response=await page.goto(process.env.LIVE_URL+'/',{waitUntil:'domcontentloaded',timeout:45000});
+            if(!response?.ok())throw Error('Dashboard HTML HTTP '+response?.status());
+            await page.waitForFunction(()=>/^\\d{2}:\\d{2}:\\d{2}Z$/.test(document.querySelector('#utc')?.textContent||''),{timeout:20000});
+            await page.waitForFunction(()=>/^(METAR|SPECI) KOMA\\b/i.test(document.querySelector('#aviation-raw')?.textContent||''),{timeout:35000});
+            await page.waitForFunction(()=>/\\d+°[FC]/.test(document.querySelector('#temp')?.textContent||''),{timeout:35000});
+            const snapshot=await page.evaluate(()=>({
+              utc:document.querySelector('#utc')?.textContent,
+              metar:document.querySelector('#aviation-raw')?.textContent?.slice(0,150),
+              temperature:document.querySelector('#temp')?.textContent,
+              radar:document.querySelector('#map-caption')?.textContent,
+              errors:document.querySelector('#notice')?.textContent
+            }));
+            console.log('Browser dashboard snapshot:',JSON.stringify(snapshot));
+            if(pageErrors.length)throw Error('Uncaught browser errors: '+pageErrors.join('; '));
+            console.log('Browser smoke test passed');
+          }finally{await browser.close()}
+          BROWSER_TEST
