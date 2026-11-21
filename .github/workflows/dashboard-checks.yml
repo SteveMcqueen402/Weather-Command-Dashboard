@@ -110,10 +110,21 @@ jobs:
           const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
           const page=await browser.newPage({viewport:{width:1440,height:900}});
           const pageErrors=[];
-          page.on('pageerror',error=>pageErrors.push(error.message));
+          page.on('pageerror',error=>{pageErrors.push(error.message);console.error('UNCAUGHT_PAGE_ERROR',error.stack||error.message)});
+          page.on('console',message=>{if(message.type()==='error')console.error('BROWSER_CONSOLE_ERROR',message.text())});
+          page.on('requestfailed',request=>console.error('BROWSER_REQUEST_FAILED',request.url(),request.failure()?.errorText));
+          page.on('response',response=>{if(/\\/(?:app\\.js|aircraft-identifiers\\.cjs|leaflet\\.js)/.test(response.url()))console.log('SCRIPT_RESPONSE',response.status(),response.url())});
           try{
             const response=await page.goto(process.env.LIVE_URL+'/',{waitUntil:'domcontentloaded',timeout:45000});
             if(!response?.ok())throw Error('Dashboard HTML HTTP '+response?.status());
+            await page.waitForTimeout(2000);
+            console.log('BOOT_SNAPSHOT',JSON.stringify(await page.evaluate(()=>({
+              utc:document.querySelector('#utc')?.textContent,
+              metar:document.querySelector('#aviation-raw')?.textContent,
+              notice:document.querySelector('#notice')?.textContent,
+              scripts:[...document.scripts].map(s=>({src:s.src,readyState:s.readyState}))
+            }))));
+            console.log('BOOT_PAGE_ERRORS',JSON.stringify(pageErrors));
             await page.waitForFunction(()=>/^\d{2}:\d{2}:\d{2}Z$/.test(document.querySelector('#utc')?.textContent||''),null,{timeout:20000});
             await page.waitForFunction(()=>/^(METAR|SPECI) KOMA\b/i.test(document.querySelector('#aviation-raw')?.textContent||''),null,{timeout:35000});
             await page.waitForFunction(()=>/\d+°[FC]/.test(document.querySelector('#temp')?.textContent||''),null,{timeout:35000});
