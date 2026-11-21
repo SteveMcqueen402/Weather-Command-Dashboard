@@ -433,6 +433,13 @@ const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8'
 const server=http.createServer(async(req,res)=>{
   try{
     const u=new URL(req.url,`http://localhost:${port}`);
+    if(u.pathname==='/healthz'){
+      const required=['index.html','app.js','style.css','aircraft-identifiers.cjs'];
+      const checks=await Promise.all(required.map(async file=>({file,available:await fs.access(path.join(root,file)).then(()=>true,()=>false)})));
+      const healthy=checks.every(check=>check.available);
+      res.writeHead(healthy?200:503,{'Content-Type':'application/json','Cache-Control':'no-store'});
+      res.end(JSON.stringify({status:healthy?'ok':'degraded',service:'weather-command-dashboard',checks,checkedAt:new Date().toISOString()}));return;
+    }
     if(u.pathname==='/api/aircraft'){
       const identifier=resolveAircraftIdentifier(u.searchParams.get('reg'));
       const headers={'Content-Type':'application/json','Cache-Control':'no-store'};
