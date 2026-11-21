@@ -1,0 +1,41 @@
+name: Dashboard checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check server JavaScript
+        run: node --check server.mjs
+      - name: Check client JavaScript
+        run: node --check app.js
+      - name: Verify essential web files
+        run: |
+          test -f index.html
+          test -f app.js
+          test -f style.css
+          test -f aircraft-identifiers.cjs
+      - name: Run unit tests
+        run: npm test
+      - name: Smoke-test running server
+        run: |
+          node server.mjs > /tmp/weather-dashboard.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:3000/healthz > /tmp/health.json; then
+              cat /tmp/health.json
+              curl --fail --silent http://127.0.0.1:3000/ > /dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/weather-dashboard.log
+          exit 1
