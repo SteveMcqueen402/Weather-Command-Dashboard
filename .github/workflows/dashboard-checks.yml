@@ -114,9 +114,9 @@ jobs:
           try{
             const response=await page.goto(process.env.LIVE_URL+'/',{waitUntil:'domcontentloaded',timeout:45000});
             if(!response?.ok())throw Error('Dashboard HTML HTTP '+response?.status());
-            await page.waitForFunction(()=>/^\\d{2}:\\d{2}:\\d{2}Z$/.test(document.querySelector('#utc')?.textContent||''),{timeout:20000});
-            await page.waitForFunction(()=>/^(METAR|SPECI) KOMA\\b/i.test(document.querySelector('#aviation-raw')?.textContent||''),{timeout:35000});
-            await page.waitForFunction(()=>/\\d+°[FC]/.test(document.querySelector('#temp')?.textContent||''),{timeout:35000});
+            await page.waitForFunction(()=>/^\d{2}:\d{2}:\d{2}Z$/.test(document.querySelector('#utc')?.textContent||''),null,{timeout:20000});
+            await page.waitForFunction(()=>/^(METAR|SPECI) KOMA\b/i.test(document.querySelector('#aviation-raw')?.textContent||''),null,{timeout:35000});
+            await page.waitForFunction(()=>/\d+°[FC]/.test(document.querySelector('#temp')?.textContent||''),null,{timeout:35000});
             const snapshot=await page.evaluate(()=>({
               utc:document.querySelector('#utc')?.textContent,
               metar:document.querySelector('#aviation-raw')?.textContent?.slice(0,150),
