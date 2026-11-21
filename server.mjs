@@ -586,11 +586,21 @@ const server=http.createServer(async(req,res)=>{
           // Reuse the server-side request cache and existing AWC User-Agent.
           let response;
           if(key==='pireps'){
-            const controller=AbortSignal.timeout(14000);
+            const controller=AbortSignal.timeout(6500);
             const answer=await fetch(url,{headers:{'User-Agent':'WeatherCommandDashboard/3.2 (aviation weather dashboard)','Accept':'application/json'},signal:controller});
             if(answer.status===204)response=null;
             else {if(!answer.ok)throw Error('NOAA PIREP HTTP '+answer.status);response=await answer.json();}
-          }else response=await upstream(url,180000);
+          }else{
+            // A slow NOAA advisory endpoint must not force the whole dashboard's
+            // hazard response past the Render gateway timeout.
+            response=await new Promise((resolve,reject)=>{
+              const timer=setTimeout(()=>reject(Error('NOAA advisory request exceeded 7-second budget')),7000);
+              upstream(url,180000).then(
+                value=>{clearTimeout(timer);resolve(value)},
+                error=>{clearTimeout(timer);reject(error)}
+              );
+            });
+          }
           if(response===null){
             if(key==='pireps')cache.set(pirepKey,{value:[],at:Date.now()});
             return {ok:true,items:[],empty:true,source:'AWC',status:204};
