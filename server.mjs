@@ -690,11 +690,25 @@ const server=http.createServer(async(req,res)=>{
       const aviationIds=unique.filter(id=>/^K[A-Z]{3}$/.test(id)||/^[A-Z]{4}$/.test(id));
       const joined=aviationIds.join(',');
       const base='https://aviationweather.gov/api/data/';
+      // Do not put an entire OurAirports CSV download on the critical path for
+      // normal ICAO airports. It previously stalled routine METAR/TAF loads and
+      // could exceed the Render HTTP gateway's response window.
+      const requiresCommunity=unique.some(id=>!/^[A-Z]{4}$/.test(id)&&id!=='84Y');
+      // Leave enough response headroom for the server and Render proxy when an
+      // AWC upstream is slow. Results that time out are explicitly unavailable,
+      // never replaced with invented METARs, TAFs, or airport positions.
+      const beforeDeadline=(pending,ms=7000)=>new Promise((resolve,reject)=>{
+        const timer=setTimeout(()=>reject(Error('Upstream timed out in dashboard request')),ms);
+        Promise.resolve(pending).then(
+          value=>{clearTimeout(timer);resolve(value)},
+          error=>{clearTimeout(timer);reject(error)}
+        );
+      });
       const results=await Promise.allSettled([
-        joined?upstream(base+'metar?ids='+encodeURIComponent(joined)+'&format=json',180000):Promise.resolve([]),
-        joined?upstream(base+'taf?ids='+encodeURIComponent(joined)+'&format=json',300000):Promise.resolve([]),
-        joined?upstream(base+'airport?ids='+encodeURIComponent(joined)+'&format=json',86400000):Promise.resolve([]),
-        communityCsv('airports')
+        joined?beforeDeadline(upstream(base+'metar?ids='+encodeURIComponent(joined)+'&format=json',180000)):Promise.resolve([]),
+        joined?beforeDeadline(upstream(base+'taf?ids='+encodeURIComponent(joined)+'&format=json',300000)):Promise.resolve([]),
+        joined?beforeDeadline(upstream(base+'airport?ids='+encodeURIComponent(joined)+'&format=json',86400000)):Promise.resolve([]),
+        requiresCommunity?beforeDeadline(communityCsv('airports')):Promise.resolve([])
       ]);
       const array=i=>results[i].status==='fulfilled'&&Array.isArray(results[i].value)?results[i].value:[];
       const metars=array(0),tafs=array(1),airports=array(2);
