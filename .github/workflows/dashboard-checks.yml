@@ -39,3 +39,26 @@ jobs:
           done
           cat /tmp/weather-dashboard.log
           exit 1
+      - name: Probe live Render dashboard
+        env:
+          LIVE_URL: https://weather-command-dashboard.onrender.com
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            echo "Checking deployed dashboard, attempt $attempt"
+            http_code=$(curl -L -sS -o /tmp/live-health.json -w '%{http_code}' --connect-timeout 8 --max-time 40 "$LIVE_URL/healthz" || true)
+            echo "Health HTTP: $http_code"
+            if [ -f /tmp/live-health.json ]; then head -c 500 /tmp/live-health.json; echo; fi
+            if [ "$http_code" = "200" ] && grep -q '"status":"ok"' /tmp/live-health.json; then
+              curl --fail --location --show-error --silent --max-time 40 "$LIVE_URL/" -o /tmp/live-index.html || exit 1
+              curl --fail --location --show-error --silent --max-time 40 "$LIVE_URL/app.js" -o /tmp/live-app.js || exit 1
+              curl --fail --location --show-error --silent --max-time 40 "$LIVE_URL/aircraft-identifiers.cjs" -o /tmp/live-identifiers.cjs || exit 1
+              node --check /tmp/live-app.js || exit 1
+              grep -q '<title>Weather Command' /tmp/live-index.html || exit 1
+              grep -q 'window.AircraftIdentifiers' /tmp/live-identifiers.cjs || exit 1
+              echo "Live Render dashboard and browser code healthy"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Render deployment did not pass health and asset checks"
+          exit 1
