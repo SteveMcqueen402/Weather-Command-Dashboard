@@ -65,3 +65,108 @@
 #injury-mini .panel-cta{padding-top:7px;margin-top:7px;font-size:9px}
 .modal-host #season-trend .performance-list,.modal-host #injury-mini .injury-mini-list{max-height:none;overflow-y:visible}
 @media(max-width:450px){.performance-table th,.performance-table td{padding-left:5px;padding-right:5px}.performance-opponent small{font-size:8px}#injury-mini .injury-mini-header,#injury-mini .injury-line{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr) minmax(62px,.8fr);gap:4px}}
+
+/* Bills Command v1.2 — high-density fluid dashboard.
+   Multicolumn packing closes the large empty gaps beneath uneven panel stacks.
+   The panels, drag handles, and data IDs are preserved. */
+.dashboard-shell{max-width:none;padding:7px clamp(7px,1vw,16px) 12px}
+.eyebrow-row{margin-bottom:6px;gap:5px}
+.hero-band{display:none}
+.stat-strip{gap:7px;margin-bottom:8px}
+.metric{min-height:74px;padding:8px 10px}
+.metric-label{font-size:8px;letter-spacing:.55px}
+.metric-value{font-size:25px;line-height:1.1;margin:4px 0}
+.metric-value.small{font-size:19px}
+.metric-footer{font-size:9px;line-height:1.2}
+.dashboard-columns{display:block;column-count:3;column-gap:8px;column-fill:balance}
+.dashboard-columns>.column{display:contents}
+.dashboard-columns .column>.panel{display:inline-block;vertical-align:top;width:100%;height:auto;min-width:0;break-inside:avoid;page-break-inside:avoid;margin:0 0 8px;padding:9px 10px}
+.dashboard-columns .column>.panel[hidden]{display:none}
+.panel-head{padding-bottom:6px;margin-bottom:7px;gap:6px}
+.panel-index{font-size:8px;line-height:1.2}
+.panel-head h2{font-size:12px;line-height:1.15}
+.panel-expand{padding:2px 6px}
+.panel-bottom{margin-top:6px;padding-top:5px}
+.game-subhead{font-size:8px;line-height:1.2;gap:4px}
+.matchup{min-height:0;padding:6px 3px;gap:3px}
+.game-team-logo{height:65px;max-width:95px}
+.matchup-side strong{font-size:13px;margin-top:3px}
+.big-score{font-size:29px;line-height:1.1}
+.vs-divider{font-size:22px;line-height:1}
+.game-phase{font-size:9px}
+.game-live-panel{min-height:0;padding:6px 8px;gap:2px}
+.game-live-panel strong{font-size:11px}
+.game-live-panel span{font-size:9px}
+.game-footer{margin-top:5px;padding-top:5px}
+.gauge-wrap{padding:6px}
+.odds-gauge{width:126px;height:126px;padding:9px}
+.gauge-inner{min-width:0;min-height:0}
+.gauge-value{font-size:31px}
+.odds-tag{font-size:9px}
+.odds-info p{margin:4px 0;line-height:1.3}
+.odds-source{padding:6px 0 3px}
+.source-warning{margin-top:4px;padding-top:4px;line-height:1.3}
+.standing-row{padding:6px 3px}
+.news-row{padding:6px 2px}
+.news-list{max-height:250px;overflow-y:auto}
+.schedule-scroll{max-height:240px;overflow-y:auto;gap:3px}
+.schedule-row{padding:6px 3px}
+.schedule-row img{width:25px;height:25px}
+.stat-list-row{padding:6px 3px}
+#injury-mini .injury-mini-list{max-height:160px}
+#injury-mini .injury-line{min-height:0;padding:4px 2px}
+#season-trend .performance-list{max-height:165px}
+.performance-table th{padding:4px 6px}
+.performance-table td{padding:5px 6px}
+.form-item{padding:5px 2px}
+.link-tiles{gap:5px}
+.link-tiles a{padding:7px 6px}
+.wide-section{gap:8px;margin-top:1px}
+.wide-panel{padding:9px 10px}
+.league-scores{gap:7px}
+.league-score{padding:8px}
+.roster-grid{gap:6px}
+.player-card{padding:6px}
+.player-avatar{width:36px;height:38px}
+.roster-toolbar{margin-bottom:8px;gap:8px}
+.roster-toolbar input,.roster-toolbar select{min-height:31px;padding:6px 8px}
+.injury-data{padding-top:6px;padding-bottom:6px}
+.footer{margin-top:8px;padding-top:10px}
+
+/* Do not force shorter cards to stretch to the height of their neighbors. */
+.right-column .panel{height:auto}
+@media(max-width:1200px){
+  .dashboard-columns{display:block;column-count:2;column-gap:7px}
+  .dashboard-columns .column>.panel{margin-bottom:7px}
+  .stat-strip{gap:6px}
+}
+@media(max-width:730px){
+  .dashboard-columns{display:block;column-count:1}
+  .dashboard-columns .column>.panel{margin-bottom:7px}
+  .stat-strip{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+/* Fridge mode uses the same dense, gapless panel flow instead of equal-height rows. */
+.fridge-mode .dashboard-columns{display:block;column-count:2;column-gap:7px}
+.fridge-mode .dashboard-columns>.column{display:contents}
+.fridge-mode .dashboard-columns .column>.panel{display:inline-block;width:100%;height:auto;vertical-align:top;margin:0 0 7px;padding:8px 9px;break-inside:avoid}
+.fridge-mode .stat-strip{gap:6px;margin-bottom:7px}
+.fridge-mode .metric{min-height:70px;padding:7px 8px}
+.fridge-mode .game-team-logo{height:60px}
+.fridge-mode .matchup{min-height:0;padding:5px 2px}
+.fridge-mode .big-score{font-size:30px}
+@media(max-width:730px){
+  .fridge-mode .dashboard-columns{column-count:1}
+}
+@media(min-width:2000px){
+  .dashboard-columns .column>.panel{padding:10px 12px}
+  .matchup{min-height:0}
+  .game-team-logo{height:76px}
+  .metric{min-height:82px}
+}
+
+/* Desktop: retain the generous game center width while balancing columns. */
+@media(min-width:1201px){
+.dashboard-columns{display:grid;grid-template-columns:minmax(230px,1fr) minmax(390px,1.75fr) minmax(255px,1.08fr);gap:8px;align-items:start}
+.dashboard-columns>.column{display:grid;grid-template-columns:minmax(0,1fr);align-content:start;gap:8px;min-width:0}
+.dashboard-columns .column>.panel{display:block;width:100%;height:auto;min-width:0;margin:0}
+}
