@@ -1,1489 +1,183 @@
-'use strict';
-const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
-const text=(s,v)=>{const el=$(s);if(el)el.textContent=String(v??'—')};
-const htmlEscape=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const current={metar:null,taf:null,radar:null,alerts:[],forecast:null,route:[],selected:'KOMA',map:null,mapLayer:null,routeLayer:null,radarFrame:0,radarPlaying:false,radarTimer:null,modalMap:null,routeWeatherMap:null,routeWeatherLayer:null,routeRadarLayer:null,routeRadarOn:true,modalRouteLayer:null,modalRouteRadarLayer:null};
-const KOMA=[41.301,-95.894];
-const readPref=(key,fallback)=>{try{return localStorage.getItem(key)||fallback}catch{return fallback}};
-const writePref=(key,value)=>{try{localStorage.setItem(key,value)}catch{}};
-current.homeId=readPref('wc-home-airport-v13','KOMA');
-current.homeCoords=(()=>{try{const v=JSON.parse(readPref('wc-home-coords-v13','null'));return Array.isArray(v)&&v.length===2&&v.every(Number.isFinite)?v:KOMA}catch{return KOMA}})();
-current.mapStyle=readPref('wc-map-style-v13','sectional');
-const homeCoords=()=>current.homeCoords||KOMA;
-const mapsRegistry=new Set();
-function createBaseLayer(kind){
- if(kind==='sectional')return L.tileLayer('https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/VFR_Sectional/MapServer/tile/{z}/{y}/{x}',{attribution:'VFR chart © FAA Aeronautical Information Services',minNativeZoom:8,maxNativeZoom:12,maxZoom:17});
- if(kind==='satellite')return L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Imagery © Esri and providers',maxZoom:18});
- return L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxZoom:19});
+const $=id=>document.getElementById(id);
+const safeText=x=>String(x==null?'':x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const safeUrl=(s,fallback='#')=>{try{const u=new URL(s);return u.protocol==='https:'?u.href:fallback}catch{return fallback}};
+const safeLogo=(s,abbr='nfl')=>{try{const u=new URL(s);if(u.protocol==='https:'&&['a.espncdn.com','a1.espncdn.com','cdn.espn.com'].includes(u.host))return u.href}catch{}return `https://a.espncdn.com/i/teamlogos/nfl/500/${encodeURIComponent(String(abbr||'nfl').toLowerCase())}.png`};
+const set=(id,x)=>{const el=$(id);if(el)el.textContent=x==null?'—':x};
+const html=(id,s)=>{const el=$(id);if(el)el.innerHTML=s};
+const count=x=>Number.isFinite(Number(x))?Number(x):null;
+const dateTime=(s,opts={})=>{if(!s)return 'TBD';const d=new Date(s);return Number.isFinite(d.getTime())?d.toLocaleString(undefined,opts):'TBD'};
+const when=(s)=>dateTime(s,{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+const shortDate=(s)=>dateTime(s,{month:'short',day:'numeric'});
+const fmt=x=>x==null?'—':Number(x).toLocaleString();
+const statUnavailable='<div class="empty-message">This source is temporarily unavailable. No values have been estimated.</div>';
+let state={data:null,loading:false,auto:true,compact:false,arrange:false,rosterFilter:'ALL',rosterSearch:'',lastSuccess:null,lastLive:null};
+let liveTimer=null,fullTimer=null;
+const billsLogo='https://a.espncdn.com/i/teamlogos/nfl/500/buf.png';
+function statusBar(working,details){
+ const el=$('sync-dot');el.className='sync-dot '+(working?'active':state.lastSuccess?'stale':'pending');
+ set('sync-status',working?'DATA CONNECTED':state.lastSuccess?'PARTIAL / STALE':'FEEDS UNAVAILABLE');
+ set('last-sync',state.lastSuccess?`Checked ${dateTime(state.lastSuccess,{hour:'numeric',minute:'2-digit'})}`:details||'Connection pending');
+ set('refresh-message',details|| (working?'SOURCES CONNECTED':'CHECK DATA CONNECTIONS'));
 }
-function changeBaseLayers(){
- for(const m of [...mapsRegistry]){if(!m._container){mapsRegistry.delete(m);continue}try{if(m.wcBaseLayer)m.removeLayer(m.wcBaseLayer);m.wcBaseLayer=createBaseLayer(current.mapStyle).addTo(m);m.wcBaseLayer.bringToBack();m.invalidateSize()}catch(e){console.warn('Map layer unavailable',e)}}
- text('#map-style-note',current.mapStyle==='sectional'?'FAA sectional • verify current edition; best at zoom 8–12':current.mapStyle==='satellite'?'Satellite imagery © Esri':'Street map © OpenStreetMap');
+async function getJSON(url){const r=await fetch(url,{cache:'no-store',signal:AbortSignal.timeout(18000)});if(!r.ok)throw Error(`Dashboard server responded ${r.status}`);return r.json()}
+function sourceState(key){return state.data?.sources?.[key]||{ok:false,stale:false,error:'Not checked'}}
+function sourceMessage(key,message){const status=sourceState(key);return `<div class="${status.error?'feed-error':'empty-message'}">${safeText(message||status.error||'No data returned by this provider.')}<div><a target="_blank" rel="noopener" href="https://www.espn.com/nfl/team/_/name/buf">Check ESPN ↗</a></div></div>`}
+function mergeLive(payload){
+ if(!state.data||!payload?.scoreboard)return;
+ state.data.scoreboard=payload.scoreboard;
+ state.data.sources.live={ok:!!payload.ok,stale:!!payload.stale,updatedAt:payload.updatedAt,error:payload.error};
+ const todayBills=payload.scoreboard.filter(g=>[g.home?.abbr,g.away?.abbr].includes('BUF'));
+ for(const g of todayBills){const idx=state.data.games.findIndex(x=>x.id===g.id);if(idx!==-1)state.data.games[idx]=g;else state.data.games.push(g)}
+ state.data.games.sort((a,b)=>Date.parse(a.date)-Date.parse(b.date));
+ state.lastLive=payload.updatedAt;
 }
+async function refreshFull(manual=false){
+ if(state.loading)return;state.loading=true;
+ const btn=$('btn-refresh');btn.disabled=true;set('refresh-message','REFRESHING SOURCES…');
+ try{const data=await getJSON('/api/dashboard');state.data=data;state.lastSuccess=data.generatedAt;
+  renderAll();const ok=Object.values(data.sources).filter(s=>s.ok).length;
+  statusBar(ok>0,`${ok} OF ${Object.keys(data.sources).length} ESPN FEEDS RESPONDING`);
+ }catch(err){statusBar(false,err.message);if(!state.data){for(const id of ['division-list','leaders-list','injury-list-mini','news-list','trend-chart','schedule-list','stat-list','form-results','league-score-list','roster-grid','injury-table'])html(id,`<div class="feed-error">${safeText(err.message)}. Run the provided Node server and check its internet connection.</div>`)} }
+ finally{state.loading=false;btn.disabled=false;}
+}
+async function refreshLive(){if(!state.auto||!state.data)return;try{const latest=await getJSON('/api/live');mergeLive(latest);renderGame();renderScores();renderTrend();renderKPIs();renderRecentForm();set('game-updated',`Score feed ${dateTime(latest.updatedAt,{hour:'numeric',minute:'2-digit',second:'2-digit'})}`);if(!latest.ok)statusBar(false,'SCORE FEED UNAVAILABLE')}catch(err){set('league-status','Live score update failed • retrying');}}
+function renderAll(){if(!state.data)return;
+ set('season-chip',`${state.data.season} SEASON`);renderKPIs();renderStandings();renderLeaders();renderInjuries();renderNews();renderGame();renderTrend();renderSchedule();renderOdds();renderTeamStats();renderRecentForm();renderScores();renderRoster();
+ set('footer-update',`Data checked ${dateTime(state.data.generatedAt,{dateStyle:'short',timeStyle:'short'})}`);
+}
+function renderKPIs(){const d=state.data;if(!d)return;
+ const t=d.team||{};set('kpi-record',t.record|| (t.wins!=null&&t.losses!=null?`${t.wins}-${t.losses}`:'—'));set('kpi-record-sub','2026 regular season');
+ set('kpi-seed',d.divisionRank==null?'—':`#${d.divisionRank}`);
+ const p=t.wins!=null&&t.losses!=null?(t.wins+.5*(t.ties||0))/(t.wins+t.losses+(t.ties||0)||1)*100:null;set('kpi-win-pct',p==null?'—':`${p.toFixed(1)}%`);
+ const finished=d.games.filter(g=>g.status==='post'&&g.billsScore!=null&&g.opponentScore!=null);
+ const diff=finished.length?finished.reduce((x,g)=>x+g.billsScore-g.opponentScore,0):null;
+ set('kpi-diff',diff===null?'—':`${diff>0?'+':''}${diff}`);set('kpi-diff-sub',finished.length?`${finished.length} completed games`:'Awaiting finalized games');
+ const featured=featuredGame(d.games),upcoming=d.games.find(g=>g.status==='pre');const next=upcoming||featured;
+ set('kpi-next',next?.opponentAbbr||'—');set('kpi-next-sub',next?.date?when(next.date):'No scheduled game');
+ const prob=d.odds?.value;set('kpi-odds',prob?.percent==null?'—':`${Number(prob.percent).toFixed(1)}%`);set('kpi-odds-sub',prob?.live?'Futures odds estimate':'FPI dated snapshot • not live');
+}
+function renderStandings(){const data=state.data.standings;
+ if(!data.length){html('division-list',sourceMessage('standings','AFC East standings are currently unavailable.'));return}
+ html('division-list','<div class="standing-header"><span>CLUB</span><strong>W–L</strong><strong>WIN%</strong></div>'+data.map(r=>`<div class="standing-row ${r.abbr==='BUF'?'highlight':''}"><div class="standing-team"><img loading="lazy" src="${safeLogo(r.logo,r.abbr)}" alt=""><span>${safeText(r.name)}</span></div><strong>${r.wins!=null?`${r.wins}-${r.losses??0}`:safeText(r.record||'—')}</strong><strong class="record-detail">${r.pct!=null?(r.pct*100).toFixed(0)+'%':r.wins!=null?(100*r.wins/Math.max(1,r.wins+(r.losses||0))).toFixed(0)+'%':'—'}</strong></div>`).join(''));
+}
+function renderLeaders(){const all=state.data.leaders||[];
+ const cats=[];for(const l of all){const title=String(l.category||'').toLowerCase();const group=title.includes('pass')?'PASSING':title.includes('rush')?'RUSHING':title.includes('receiv')?'RECEIVING':title.includes('tackle')?'TACKLES':title.includes('sack')?'SACKS':title.toUpperCase();if(cats.some(x=>x.group===group))continue;cats.push({...l,group})}
+ if(!cats.length){html('leaders-list',sourceMessage('leaders','Player statistical leaders are unavailable; no numbers will be guessed.'));return}
+ html('leaders-list',cats.slice(0,8).map((l)=>`<div class="leader-item"><div class="leader-person"><small>${safeText(l.group)}</small><strong>${safeText(l.name)}</strong></div><div class="leader-value">${safeText(l.value??'—')}</div></div>`).join(''));
+}
+function injuryBadge(s){const text=String(s||'Unspecified');const lower=text.toLowerCase();const cls=lower.includes('out')?'out':lower.includes('reserve')||lower.includes('ir')?'ir':lower.includes('doubt')?'doubtful':lower.includes('question')?'questionable':lower.includes('active')?'active':lower.includes('full')?'full':'';return `<span class="status-pill ${cls}">${safeText(text)}</span>`}
+function renderInjuries(){const a=state.data.injuries||[];
+ const inactive=state.data.gamedayInactives;
+ const inactiveBlock=inactive?.players?.length?`<div class="injury-note"><strong>OFFICIAL GAME-DAY INACTIVES • ${safeText(shortDate(inactive.date))}</strong><div>${inactive.players.map(x=>`${safeText(x.position)} ${safeText(x.name)}`).join(' · ')}</div><small>Inactive does not necessarily mean injured. <a href="${safeUrl(inactive.url)}" target="_blank" rel="noopener">Official Bills list ↗</a></small></div>`:'';
 
-const charts={surface:{name:'WPC Surface Analysis',image:'/api/chart/surface',source:'https://www.wpc.ncep.noaa.gov/html/sfc2.shtml'},convective:{name:'SPC Day 1 Convective Outlook',image:'/api/chart/convective',source:'https://www.spc.noaa.gov/products/outlook/'}};
-function dateTime(value){if(!value)return 'Time unavailable';const d=typeof value==='number'?new Date(value*1000):new Date(value);return Number.isNaN(+d)?'Time unavailable':d.toLocaleString('en-US',{timeZone:'America/Chicago',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});}
-function status(message){text('#notice',message)}
-async function fetchJSON(path){
- const r=await fetch(path,{cache:'no-store'});
- const raw=await r.text();
- let data;
- try{data=JSON.parse(raw)}catch{
-  throw Error('Weather service returned '+(r.status||'an invalid response')+' instead of weather data ('+path.split('?')[0]+').');
+ set('injury-count',`${a.length} REPORTED`);set('injury-sync',sourceState('injuries').updatedAt?`ESPN checked ${dateTime(sourceState('injuries').updatedAt,{hour:'numeric',minute:'2-digit'})}`:'ESPN injury feed unavailable');
+ if(!a.length){let str=sourceState('injuries').ok?'No current player injury entries in the ESPN team feed. This does not confirm all players are active.':'Player-specific injury data unavailable from ESPN right now.';
+ html('injury-list-mini',`${inactiveBlock}<div class="empty-message">${safeText(str)}<div><a href="https://www.buffalobills.com/team/injury-report/" target="_blank" rel="noopener">Official injury report ↗</a></div></div>`);html('injury-table',`${inactiveBlock}<div class="empty-message">${safeText(str)}<div><a href="https://www.buffalobills.com/team/injury-report/" target="_blank" rel="noopener">Check official Bills injury report ↗</a></div></div>`);return}
+ const risk=s=>{const t=s.toLowerCase();return t.includes('out')||t.includes('ir')?0:t.includes('doubt')?1:t.includes('question')?2:3};
+ const sorted=[...a].sort((x,y)=>risk(x.status)-risk(y.status)||x.name.localeCompare(y.name));
+ html('injury-list-mini',inactiveBlock+sorted.slice(0,6).map(x=>`<div class="injury-line"><div><strong>${safeText(x.name)}</strong><small>${safeText(x.position||'—')} • ${safeText(x.injury||'—')}</small></div>${injuryBadge(x.status)}</div>`).join(''));
+ html('injury-table',inactiveBlock+'<div class="injury-header"><div>PLAYER</div><div>POSITION</div><div>STATUS</div><div>INJURY / CONDITION</div><div>REPORTED</div></div>'+sorted.map(x=>`<div class="injury-data"><div><strong>${safeText(x.name)}</strong></div><div>${safeText(x.position)}</div><div>${injuryBadge(x.status)}</div><div>${safeText(x.injury)}</div><div>${safeText(x.date?shortDate(x.date):'—')}</div></div>`).join(''));
+}
+function renderNews(){const items=state.data.news||[];
+ if(!items.length){html('news-list',sourceMessage('news','News from ESPN is temporarily unavailable.'));return}
+ html('news-list',items.slice(0,7).map(n=>`<a class="news-row" href="${safeUrl(n.url,'https://www.buffalobills.com/news/')}" target="_blank" rel="noopener"><strong>${safeText(n.title)}</strong><small>${safeText(n.date?shortDate(n.date):'ESPN')}</small></a>`).join(''));
+}
+function featuredGame(games){if(!games?.length)return null;const live=games.find(g=>g.status==='in');if(live)return live;const now=Date.now();return games.find(g=>g.status==='pre'&&Date.parse(g.date)>now-5*3600000)||[...games].reverse().find(g=>g.status==='post')||games[0]}
+function renderGame(){const g=featuredGame(state.data.games);if(!g){set('game-status-detail','Game schedule not available');return}
+ const playing=g.status==='in',final=g.status==='post';
+ const tag=$('game-live-tag');tag.textContent=playing?'LIVE NOW':final?'FINAL':'UP NEXT';tag.classList.toggle('live',playing);
+ set('game-week',g.week?`WEEK ${g.week} • NFL`:'2026 NFL SEASON');set('game-venue',g.venue||'Venue not provided');set('game-network',g.network||'');
+ set('game-bills-score',playing||final?fmt(g.billsScore):'—');set('game-opponent-score',playing||final?fmt(g.opponentScore):'—');
+ const opParts=(g.opponent||'Opponent').split(' ');const short=opParts[opParts.length-1]||g.opponentAbbr;
+ set('opponent-name',short.toUpperCase());set('opponent-abbr',g.opponentAbbr||'NFL');$('opponent-logo').src=safeLogo(g.opponentLogo,g.opponentAbbr);
+ set('game-phase',playing?'LIVE':final?'FINAL':'PRE GAME');set('game-kickoff',playing?g.statusLabel:final?'GAME COMPLETE':dateTime(g.date,{weekday:'short',hour:'numeric',minute:'2-digit'}));set('game-location',g.isHome?'HOME · BUFFALO':'AWAY GAME');
+ const indicator=$('game-live-indicator');indicator.classList.toggle('live',playing);indicator.textContent=playing?'● LIVE GAME UPDATE':final?'● FINAL RESULT':'● PREGAME';
+ set('game-status-detail',playing?g.statusLabel:final?`${g.billsScore!=null&&g.opponentScore!=null?(g.billsScore>g.opponentScore?'BILLS WIN':g.billsScore<g.opponentScore?'GAME FINAL':'GAME TIED'):'GAME COMPLETE'} • ${g.statusLabel}`:`KICKOFF ${when(g.date)}`);
+ set('game-play',playing?g.play||'Live play detail not available from current feed.':final?`Final score: Bills ${fmt(g.billsScore)} – ${fmt(g.opponentScore)} ${g.opponentAbbr}`:`${g.opponent} • ${g.venue||'venue TBD'}`);
+ $('game-espn-link').href=safeUrl(g.sourceUrl,'https://www.espn.com/nfl/team/_/name/buf');set('game-updated',state.data.sources?.live?.updatedAt?`Last fetched ${dateTime(state.data.sources.live.updatedAt,{hour:'numeric',minute:'2-digit'})}`:'Score feed not checked');
+}
+function renderTrend(){const all=state.data.games.filter(g=>g.status==='post'&&g.billsScore!=null&&g.opponentScore!=null).slice(-12);
+ if(!all.length){html('trend-chart','<div class="empty-message">No confirmed final scores in the ESPN schedule feed.</div>');set('trend-summary','—');return}
+ const max=Math.max(40,...all.map(g=>Math.max(g.billsScore,g.opponentScore)))*1.05;
+ const maxH=126;
+ html('trend-chart',all.map(g=>{const win=g.billsScore>g.opponentScore,loss=g.billsScore<g.opponentScore;
+ const b=Math.max(2,Math.round(maxH*g.billsScore/max)),o=Math.max(2,Math.round(maxH*g.opponentScore/max));
+ return `<div class="trend-item" title="${safeText(when(g.date))}: Bills ${g.billsScore}, ${safeText(g.opponentAbbr)} ${g.opponentScore}"><div class="trend-bars"><i class="bills" style="height:${b}px"></i><i class="opponent" style="height:${o}px"></i></div><span class="trend-abbr">${safeText(g.opponentAbbr||'OPP')}</span><span class="trend-result ${win?'win':loss?'loss':'tie'}">${win?'W':loss?'L':'T'} ${g.billsScore}-${g.opponentScore}</span></div>`}).join(''));
+ const w=all.filter(g=>g.billsScore>g.opponentScore).length;
+ set('trend-caption',`${all.length} MOST RECENT FINALS`);
+ $('trend-summary').innerHTML=`<span>LAST ${all.length}: ${w} WINS • ${all.length-w} OTHERS</span><span>ESPN FINAL SCORES</span>`;
+}
+function renderSchedule(){const g=state.data.games.filter(g=>g.status==='pre').slice(0,9);
+ if(!g.length){html('schedule-list','<div class="empty-message">No upcoming games returned in the current season schedule.</div>');return}
+ html('schedule-list',g.map(x=>`<div class="schedule-row"><div class="schedule-date"><strong>${safeText(shortDate(x.date))}</strong><small>${safeText(dateTime(x.date,{weekday:'short'}))}</small></div><img src="${safeLogo(x.opponentLogo,x.opponentAbbr)}" alt=""><div class="schedule-opp"><strong>${safeText(x.isHome?'VS':'@')} ${safeText(x.opponent)}</strong><small>${safeText(x.venue||'')}${x.week?' • Week '+x.week:''}</small></div><div class="schedule-time">${safeText(dateTime(x.date,{hour:'numeric',minute:'2-digit'}))}<small>LOCAL</small></div></div>`).join(''));
+}
+function renderOdds(){const o=state.data.odds||{},p=o.value;
+ if(!p||p.percent==null){set('odds-percent','—');$('odds-gauge').style.setProperty('--prob','0');set('odds-status','NO LIVE PROBABILITY AVAILABLE');set('odds-explanation','Provide ODDS_API_KEY on the server to load current bookmaker futures. No unverified percentage will be shown.');set('odds-source-link','The Odds API ↗');$('odds-source-link').href='https://the-odds-api.com/sports/super-bowl-winner-odds.html';set('odds-warning',o.error||'No probability model is connected.');return}
+ $('odds-gauge').style.setProperty('--prob',String(Math.min(100,Math.max(0,p.percent))));set('odds-percent',`${Number(p.percent).toFixed(1)}%`);
+ set('odds-status',p.live?'MARKET-IMPLIED PROBABILITY':'ESPN FPI ESTIMATE • DATED');
+ const stamp=p.asOf?shortDate(p.asOf):'time unavailable';
+ set('odds-explanation',p.live?`Consensus of ${p.books} sportsbook${p.books===1?'':'s'}, adjusted for the bookmakers’ combined margin. Updated ${stamp}.`:`This is ESPN's published model estimate as of ${p.asOf}. It does not refresh automatically; the live odds feed requires a key.`);
+ $('odds-source-link').href=p.live?'https://the-odds-api.com/sports/super-bowl-winner-odds.html':safeUrl(p.url,'https://www.espn.com/nfl/fpi');set('odds-source-link',p.live?'The Odds API ↗':'ESPN FPI / source ↗');
+ set('odds-warning',p.live?'Prices and probabilities vary by sportsbook and change over time. Not an NFL forecast.':'Dated snapshot, not real-time. Add an ODDS_API_KEY to show refreshed futures-market probabilities.');
+}
+function renderTeamStats(){const d=state.data;
+ const preferred=[['totalYards','Total Yards'],['passingYards','Passing Yards'],['rushingYards','Rushing Yards'],['totalPoints','Total Points'],['pointsPerGame','Points Per Game'],['sacks','Sacks'],['thirdDownPct','Third Down %'],['turnovers','Turnovers'],['firstDowns','First Downs']];
+ let shown=[];for(const [key,label] of preferred){const item=d.stats.find(x=>x.key===key);if(item)shown.push({label,value:item.value})}
+ if(!shown.length){const completed=d.games.filter(g=>g.status==='post'&&g.billsScore!=null&&g.opponentScore!=null);
+ if(completed.length){const sum=completed.reduce((v,x)=>({b:v.b+x.billsScore,o:v.o+x.opponentScore}),{b:0,o:0});shown=[{label:'Points For',value:sum.b},{label:'Points Against',value:sum.o},{label:'Points Per Game',value:(sum.b/completed.length).toFixed(1)},{label:'Points Allowed / Game',value:(sum.o/completed.length).toFixed(1)},{label:'Point Differential',value:(sum.b-sum.o)>0?`+${sum.b-sum.o}`:sum.b-sum.o}];}
  }
- if(!r.ok)throw Error(data?.error||'Weather service error '+r.status+' ('+path.split('?')[0]+')');
- return data;
+ if(!shown.length){html('stat-list',sourceMessage('stats','No verified team statistics returned.'));return}
+ html('stat-list',shown.slice(0,10).map(x=>`<div class="stat-list-row"><span>${safeText(x.label)}</span><strong>${safeText(x.value)}</strong></div>`).join(''));
 }
-function setTab(group,selected){$$(`[data-${group}]`).forEach(el=>el.classList.toggle('active',el.dataset[group]===selected))}
-function showModal(title,content,source){text('#modal-title',title);const container=$('#modal-content');container.replaceChildren();if(typeof content==='string')container.innerHTML=content;else if(content)container.append(content);const l=$('#modal-link');l.href=source||'#';l.classList.toggle('hidden',!source);$('#modal').classList.remove('hidden');$('#modal-close').focus()}
-function closeModal(){if(current.modalMapResizeObserver){current.modalMapResizeObserver.disconnect();current.modalMapResizeObserver=null}if(current.modalMap){current.modalMap.remove();current.modalMap=null;current.modalRouteLayer=null;current.modalRouteRadarLayer=null}$('#modal').classList.add('hidden');$('#modal-content').replaceChildren()}
-$('#modal-close').addEventListener('click',closeModal);$('#modal').addEventListener('click',e=>{if(e.target===$('#modal'))closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
-function openChart(key){const c=charts[key];if(!c)return;const wrap=document.createElement('div');const img=document.createElement('img');img.src=c.image+(c.image.includes('?')?'&':'?')+'v='+Math.floor(Date.now()/900000);img.alt=c.name;img.onerror=()=>{img.style.display='none';const p=document.createElement('p');p.className='source-note';p.textContent='Official chart temporarily unavailable. Open the WPC/SPC source using the link above.';wrap.append(p)};wrap.append(img);showModal(c.name,wrap,c.source)}
-$$('[data-open-chart]').forEach(el=>el.addEventListener('click',()=>openChart(el.dataset.openChart)));
-function scrollToPanel(id){document.getElementById(id)?.scrollIntoView({behavior:'smooth',block:'center'})}
-$$('[data-detail]').forEach(el=>el.addEventListener('click',()=>scrollToPanel(el.dataset.detail)));
-$$('[data-target]').forEach(el=>el.addEventListener('click',()=>{scrollToPanel(el.dataset.target);$$('[data-target]').forEach(b=>b.classList.toggle('active',b===el))}));
-function makeMap(node,zoom=6){if(!window.L)throw Error('Interactive map library unavailable');const m=L.map(node,{zoomControl:true}).setView(homeCoords(),current.mapStyle==='sectional'?Math.max(8,zoom):zoom);m.wcBaseLayer=createBaseLayer(current.mapStyle).addTo(m);mapsRegistry.add(m);m.on('unload',()=>mapsRegistry.delete(m));return m}
-function latestRadarFrame(){const a=current.radar?.radar?.past||[];return a.length?a[Math.max(0,Math.min(current.radarFrame,a.length-1))]:null}
-function addRadarLayer(map){const frame=latestRadarFrame();if(!frame||!map)return null;const sharp=$('#radar-quality')?.value!=='smooth';const url=`${current.radar.host}${frame.path}/256/{z}/{x}/{y}/2/${sharp?'0_1':'1_1'}.png`;const layer=L.tileLayer(url,{tileSize:256,maxNativeZoom:7,maxZoom:18,opacity:.78,updateWhenIdle:false,keepBuffer:3,crossOrigin:true,attribution:'Radar © RainViewer'});layer.addTo(map);text('#map-caption','Radar '+dateTime(frame.time)+' · '+(sharp?'sharp':'smoothed')+' rendering (source max zoom 7)');return layer}
-function transitionRadar(map,slot){if(!map)return;const prior=current[slot];const next=addRadarLayer(map);if(!next)return;current[slot]=next;let retired=false;const retire=()=>{if(retired)return;retired=true;if(prior&&prior!==next&&map.hasLayer(prior))map.removeLayer(prior)};next.once('load',retire);setTimeout(retire,1400)}
-function removeMainLayers(){if(current.mapLayer){current.map.removeLayer(current.mapLayer);current.mapLayer=null}if(current.routeLayer){current.map.removeLayer(current.routeLayer);current.routeLayer=null}}
-function drawRouteOn(map){const pts=current.route.filter(p=>p.coords);const group=L.layerGroup().addTo(map);if(pts.length){const coords=pts.map(x=>x.coords);pts.forEach(p=>{const name=htmlEscape(p.id), report=htmlEscape(p.metar?.rawOb||'METAR unavailable');L.marker(p.coords).addTo(group).bindPopup(`<strong>${name}</strong><p>${report}</p>`)});if(coords.length>1)L.polyline(coords,{color:'#55d9ff',weight:4,dashArray:'8 6'}).addTo(group);if(coords.length>1)map.fitBounds(L.latLngBounds(coords).pad(.18));else map.setView(coords[0],8)}else{L.marker(homeCoords()).bindPopup(current.homeId).addTo(group);map.setView(homeCoords(),current.mapStyle==='sectional'?8:6)}return group}
-function ensureGfaWinds(){
- const frame=$('#gfa-winds-iframe');
- if(frame&&!frame.getAttribute('src'))frame.setAttribute('src','https://aviationweather.gov/gfa/#winds');
+function renderRecentForm(){const d=state.data.games.filter(g=>g.status==='post'&&g.billsScore!=null&&g.opponentScore!=null).slice(-5).reverse();
+ if(!d.length){html('form-results','<div class="empty-message">No recent final results available.</div>');return}
+ html('form-results',d.map(g=>{const win=g.billsScore>g.opponentScore,loss=g.billsScore<g.opponentScore;return `<div class="form-item ${win?'win':loss?'loss':'tie'}"><small>${safeText(g.opponentAbbr||'OPP')}</small><span class="letter">${win?'W':loss?'L':'T'}</span><strong>${g.billsScore}-${g.opponentScore}</strong></div>`}).join(''));
 }
-function mapMode(mode){
- setTab('map',mode);
- const winds=mode==='winds';
- $('#gfa-winds-view')?.classList.toggle('hidden',!winds);
- if(winds){
-   $('#main-map').classList.add('hidden');
-   $('#play-radar')?.classList.add('hidden');
-   $('#map-chart').classList.add('hidden');
-   $('#chart-unavailable').classList.add('hidden');
-   ensureGfaWinds();
-   $('#map-source').href='https://aviationweather.gov/gfa/#winds';
-   text('#map-source','NOAA GFA Winds ↗');
-   text('#map-caption','Select an altitude and forecast time, then tap a barb’s center dot.');
-   return;
- }
- $('#play-radar')?.classList.toggle('hidden',mode!=='radar'&&mode!=='route');$('#map-chart').classList.add('hidden');$('#main-map').classList.remove('hidden');$('#chart-unavailable').classList.add('hidden');removeMainLayers();if(mode==='radar'){current.map.setView(homeCoords(),current.mapStyle==='sectional'?8:6);current.mapLayer=addRadarLayer(current.map);$('#map-source').href='https://radar.weather.gov/';text('#map-source','NOAA radar ↗')}else if(mode==='route'){current.routeLayer=drawRouteOn(current.map);if(current.routeRadarOn)current.mapLayer=addRadarLayer(current.map);text('#map-caption','Straight-line planning display; not an approved flight route');$('#map-source').href='https://aviationweather.gov/';text('#map-source','Aviation Weather Center ↗');}else{const c=charts[mode];if(!c)return;$('#main-map').classList.add('hidden');$('#map-chart').classList.remove('hidden');const image=$('#map-chart-image');image.style.display='block';image.src=c.image+(c.image.includes('?')?'&':'?')+'v='+Math.floor(Date.now()/900000);image.alt=c.name;image.onerror=()=>{image.style.display='none';$('#chart-unavailable').classList.remove('hidden')};$('#map-source').href=c.source;text('#map-source','Official source ↗');text('#map-caption',c.name+' · verify analysis/valid time on chart')}if(mode==='radar'||mode==='route'){if(aircraftTrack?.position)drawTrackedAircraft(current.map,aircraftTrack.position,mode==='radar');setTimeout(()=>{current.map.invalidateSize({pan:false});current.mapLayer?.redraw()},220);setTimeout(()=>current.map.invalidateSize({pan:false}),1000)}}
-$$('[data-map]').forEach(btn=>btn.addEventListener('click',()=>mapMode(btn.dataset.map)));
-// The same IATA / ICAO / GA identifier rules are used by the server.
-const {resolveAircraftIdentifier}=window.AircraftIdentifiers;
-const normalizeTrackedAircraftId=raw=>resolveAircraftIdentifier(raw).lookup;
-const isTrackedCallsign=id=>resolveAircraftIdentifier(id).kind==='callsign';
-const aircraftPanel=$('#aircraft-tracker');
-const aircraftInput=$('#aircraft-registration');
-const aircraftMarkers=new WeakMap();
-const filedRouteLayers=new WeakMap();
-let aircraftTrack=null,aircraftExpandedMap=null;
-function drawTrackedAircraft(map,position,center=false){
- if(!map)return;
- let marker=aircraftMarkers.get(map);
- if(!position){
-  marker?.remove();
-  aircraftMarkers.delete(map);
-  return;
- }
- const coords=[position.lat,position.lon];
- const stale=Date.now()-position.observedAt>120000;
- if(!marker){
-  const icon=L.divIcon({className:'tracked-aircraft-icon',html:'✈',iconSize:[30,30],iconAnchor:[15,15]});
-  marker=L.marker(coords,{icon,interactive:false,keyboard:false,zIndexOffset:500}).addTo(map);
-  aircraftMarkers.set(map,marker);
- }else marker.setLatLng(coords);
- marker.setOpacity(stale?.55:1);
- if(center)map.setView(coords,Math.max(map.getZoom(),8));
+function renderScores(){const a=state.data.scoreboard||[];const v=state.data.sources?.live;
+ set('league-status',v?.ok?`LIVE FEED • ${dateTime(v.updatedAt,{hour:'numeric',minute:'2-digit',second:'2-digit'})}${v.stale?' • STALE':''}`:'SCORE FEED UNAVAILABLE');
+ if(!a.length){html('league-score-list','<div class="empty-message">No NFL games returned for today. The scoreboard refreshes automatically on game days.</div>');return}
+ const sorted=[...a].sort((x,y)=>{const xb=[x.home?.abbr,x.away?.abbr].includes('BUF');const yb=[y.home?.abbr,y.away?.abbr].includes('BUF');return Number(yb)-Number(xb)||Date.parse(x.date)-Date.parse(y.date)});
+ html('league-score-list',sorted.map(g=>{const isBills=[g.home?.abbr,g.away?.abbr].includes('BUF');const s=g.status==='in'?'LIVE':g.status==='post'?'FINAL':dateTime(g.date,{hour:'numeric',minute:'2-digit'});
+ const team=t=>`<div class="league-competitor"><img loading="lazy" src="${safeLogo(t.logo,t.abbr)}" alt=""><span>${safeText(t.abbr)}</span><b>${g.status==='pre'?'—':t.score==null?'—':fmt(t.score)}</b></div>`;
+ return `<div class="league-score ${isBills?'bills-game':''}"><div class="league-top"><span>${g.status==='in'?'● LIVE':'NFL'}</span><span class="${g.status==='in'?'in':''}">${safeText(g.status==='in'&&g.statusLabel?g.statusLabel:s)}</span></div>${team(g.away)}${team(g.home)}<span class="league-bottom">${safeText(g.venue||g.name||'NFL')}</span></div>`}).join(''));
 }
-function drawFiledRoute(map,route,fit=false){
- if(!map)return;
- filedRouteLayers.get(map)?.remove();
- filedRouteLayers.delete(map);
- if(!route)return;
- const segments=[[]];
- for(const point of route.fixes){
-  if(point)segments.at(-1).push(point);
-  else if(segments.at(-1).length)segments.push([]);
- }
- const lines=segments.filter(segment=>segment.length>1);
- if(!lines.length)return;
- const layer=L.polyline(lines,{color:'#ec9aff',weight:4,dashArray:'9 7',interactive:false}).addTo(map);
- filedRouteLayers.set(map,layer);
- if(fit){
-  const bounds=layer.getBounds();
-  if(aircraftTrack?.position)bounds.extend([aircraftTrack.position.lat,aircraftTrack.position.lon]);
-  map.fitBounds(bounds.pad(.12),{maxZoom:10});
- }
+const OFF=['QB','RB','FB','WR','TE','LT','RT','LG','RG','C','G','OT','OL','T'];const DEF=['DT','NT','DE','DL','LB','ILB','OLB','MLB','CB','S','FS','SS','DB','EDGE'];const SPEC=['K','P','LS','PK'];
+function groupPos(p){return OFF.includes(p)?'OFF':DEF.includes(p)?'DEF':SPEC.includes(p)?'SPEC':'OTHER'}
+function renderRoster(){const p=state.data.roster||[],q=state.rosterSearch.toLowerCase(),group=state.rosterFilter;
+ const filtered=p.filter(x=>{const matches=[x.name,x.position,x.number].some(v=>String(v||'').toLowerCase().includes(q));return matches&&(group==='ALL'||groupPos(x.position)===group)});
+ set('roster-count',p.length?`${p.length} PLAYERS`:'—');set('roster-status',p.length?`${filtered.length} displayed • ESPN roster`:'ESPN roster feed not available');
+ if(!p.length){html('roster-grid',sourceMessage('roster','ESPN did not return an active Bills roster.'));return}
+ if(!filtered.length){html('roster-grid','<div class="empty-message">No players match your search or position filter.</div>');return}
+ html('roster-grid',filtered.map(x=>`<div class="player-card">${x.headshot?`<img class="player-avatar" loading="lazy" src="${safeLogo(x.headshot,'nfl')}" alt="">`:`<div class="player-avatar player-placeholder">${safeText(x.number)}</div>`}<div class="player-details"><strong title="${safeText(x.name)}">${safeText(x.name)}</strong><small><span class="player-number">#${safeText(x.number)}</span> • ${safeText(x.position)}</small></div></div>`).join(''));
 }
-const filedRouteButton=$('#lookup-filed-route');
-const filedRouteAccess=$('#filed-route-access');
-const filedRouteCode=$('#filed-route-code');
-async function lookupFiledRoute(){
- const track=aircraftTrack;
- if(!track||track.routeController)return;
- const controller=new AbortController();
- track.routeController=controller;
- filedRouteButton.disabled=true;
- text('#filed-route-status','Checking FlightAware for a filed route…');
- try{
-  const code=filedRouteCode.value.trim();
-  const response=await fetch('/api/aircraft/filed-route?reg='+encodeURIComponent(track.registration),{
-   signal:controller.signal,cache:'no-store',headers:code?{Authorization:'Bearer '+code}:{}
-  });
-  const result=await response.json();
-  if(track!==aircraftTrack)return;
-  filedRouteAccess.classList.toggle('hidden',response.status!==401);
-  if(response.status===401)filedRouteCode.focus();
-  if(!response.ok)throw Error(result.error||'Filed route unavailable.');
-  track.filedRoute=result.route;
-  if(result.route&&$('#main-map').classList.contains('hidden'))mapMode('radar');
-  drawFiledRoute(current.map,result.route,true);
-  drawFiledRoute(aircraftExpandedMap,result.route,true);
-  if(!result.route){
-   text('#filed-route-status','FlightAware has no filed route for an active or upcoming flight for '+track.registration+'.');
-   return;
-  }
-  const {flight,origin,destination,upcoming,filed}=result.route;
-  text('#filed-route-status',[
-   upcoming?'Upcoming filed route':'Active filed route',flight,origin&&destination?origin+' → '+destination:'',
-   filed,filedRouteLayers.has(current.map)?'Dashed purple line':'Map waypoints unavailable','Source: FlightAware'
-  ].filter(Boolean).join(' · '));
- }catch(error){
-  if(track===aircraftTrack&&!controller.signal.aborted)text('#filed-route-status',error.message);
- }finally{
-  if(track===aircraftTrack){track.routeController=null;filedRouteButton.disabled=false}
- }
-}
-filedRouteButton.addEventListener('click',lookupFiledRoute);
-filedRouteCode.addEventListener('keydown',event=>{
- if(event.key==='Enter'){event.preventDefault();lookupFiledRoute()}
-});
-function clearTrackedAircraft(){
- if(aircraftTrack){
-  clearInterval(aircraftTrack.timer);
-  aircraftTrack.controller?.abort();
-  aircraftTrack.routeController?.abort();
- }
- aircraftTrack=null;
- filedRouteButton.disabled=false;
- filedRouteAccess.classList.add('hidden');
- $('#filed-route-controls').classList.add('hidden');
- text('#filed-route-status','');
- drawFiledRoute(current.map,null);
- drawFiledRoute(aircraftExpandedMap,null);
- drawTrackedAircraft(current.map,null);
- drawTrackedAircraft(aircraftExpandedMap,null);
- $('#aircraft-external').classList.add('hidden');
- text('#aircraft-track-status','Enter a GA tail number or airline flight number to see live ADS-B positions.');
-}
-function showAircraftPosition(track,notice=''){
- const firstPosition=!aircraftMarkers.has(current.map);
- drawTrackedAircraft(current.map,track.position,firstPosition);
- drawTrackedAircraft(aircraftExpandedMap,track.position);
- if(!track.position){text('#aircraft-track-status',notice);return}
- const {altitude,groundspeed,observedAt}=track.position;
- const stale=Date.now()-observedAt>120000||Boolean(notice);
- const identifier=track.requested&&track.requested!==track.registration?
-  track.requested+' ('+track.registration+')':track.registration;
- const details=[identifier,track.position.tail&&track.position.tail!==track.registration?'Tail '+track.position.tail:'',
-  altitude==='ground'?'On ground':altitude==null?'':altitude.toLocaleString()+' ft',
-  groundspeed==null?'':Math.round(groundspeed)+' kt GS',
-  (stale?'Last known position':'Position reported')+' '+new Date(observedAt).toISOString().slice(11,19)+'Z',notice];
- text('#aircraft-track-status',details.filter(Boolean).join(' · '));
-}
-async function refreshTrackedAircraft(track){
- if(!track||track!==aircraftTrack||track.controller||document.hidden||$('#main-map').classList.contains('hidden')||Date.now()<track.retryAt)return;
- const controller=new AbortController();
- track.controller=controller;
- try{
-  const response=await fetch('/api/aircraft?reg='+encodeURIComponent(track.registration),{signal:controller.signal,cache:'no-store'});
-  const result=await response.json();
-  if(track!==aircraftTrack)return;
-  if(response.status===429)track.retryAt=result.retryAt||Date.now()+60000;
-  if(!response.ok)throw Error(result.error||'Aircraft feed unavailable.');
-  if(result.position||!track.position){
-   const sourceLink=$('#aircraft-track-source');
-   sourceLink.href=result.source==='adsb.fi'?'https://adsb.fi/':'https://www.adsb.lol/docs/open-data/api';
-   sourceLink.textContent=result.source==='adsb.fi'?'Data: adsb.fi':'Data: adsb.lol (ODbL)';
-  }
-  if(result.position)track.position=result.position;
-  showAircraftPosition(track,result.position?'':'No live ADS-B position yet for '+(track.requested||track.registration)+'. The aircraft may be parked, not transmitting, or using a different operating callsign.');
- }catch(error){
-  if(track===aircraftTrack&&!controller.signal.aborted)showAircraftPosition(track,error.message||'Aircraft feed unavailable.');
- }finally{
-  track.controller=null;
- }
-}
-$('#track-aircraft').addEventListener('click',()=>{
- if(!current.map){status('Reload the page to initialize the aircraft map.');return}
- if($('#main-map').classList.contains('hidden'))mapMode('radar');
- aircraftPanel.classList.remove('hidden');
- $('#track-aircraft').setAttribute('aria-expanded','true');
- aircraftInput.focus();
-});
-$('#clear-aircraft').addEventListener('click',()=>{
- clearTrackedAircraft();
- aircraftInput.value='';
- aircraftInput.setCustomValidity('');
- aircraftPanel.classList.add('hidden');
- const button=$('#track-aircraft');
- button.setAttribute('aria-expanded','false');
- button.focus();
-});
-aircraftInput.addEventListener('input',()=>aircraftInput.setCustomValidity(''));
-$('#aircraft-tracker-form').addEventListener('submit',event=>{
- event.preventDefault();
- const resolved=resolveAircraftIdentifier(aircraftInput.value);
- const registration=resolved.lookup;
- if(resolved.error){
-  aircraftInput.setCustomValidity(resolved.error);
-  aircraftInput.reportValidity();
-  return;
- }
- if($('#main-map').classList.contains('hidden'))mapMode('radar');
- clearTrackedAircraft();
- aircraftInput.value=resolved.input;
- const fallback=$('#aircraft-external');
- fallback.href='https://globe.adsbexchange.com/?reg='+encodeURIComponent(registration);
- fallback.classList.toggle('hidden',isTrackedCallsign(registration));
- text('#aircraft-track-status','Looking up '+resolved.input+(resolved.input===registration?'':' as '+registration)+'…');
- const track={registration,requested:resolved.input,kind:resolved.kind,retryAt:0,position:null,controller:null};
- aircraftTrack=track;
- $('#filed-route-controls').classList.toggle('hidden',isTrackedCallsign(registration));
- track.timer=setInterval(()=>refreshTrackedAircraft(track),60000);
- refreshTrackedAircraft(track);
-});
-const takeoffWatchKey='wc-takeoff-watch-v1';
-function validWatchTail(tail){return Boolean(resolveAircraftIdentifier(tail).lookup)}
-const takeoffWatch=(()=>{
- try{
-  const saved=JSON.parse(readPref(takeoffWatchKey,'[]'));
-  return Array.isArray(saved)?saved.filter(row=>validWatchTail(row?.tail)&&typeof row.nickname==='string'&&typeof row.enabled==='boolean').map(row=>({...row,tail:normalizeTrackedAircraftId(row.tail)})):[];
- }catch{return []}
-})();
-const takeoffSamples=new Map();
-const takeoffMessages=new Map();
-let takeoffPolling=false,takeoffRetryAt=0,takeoffUnread=0,takeoffTimer=null;
-function renderTakeoffWatch(){
- const list=$('.takeoff-watch-list');
- if(!list)return;
- list.replaceChildren();
- if(!takeoffWatch.length){list.textContent='No saved aircraft yet.';return}
- const form=$('.takeoff-watch-form');
- for(const entry of takeoffWatch){
-  const row=document.createElement('div');
-  row.className='takeoff-watch-row';
-  const identity=document.createElement('div');
-  const name=document.createElement('strong');
-  name.textContent=entry.nickname?entry.nickname+' · '+entry.tail:entry.tail;
-  const detail=document.createElement('small');
-  detail.dataset.takeoffDetail=entry.tail;
-  detail.textContent=entry.enabled?(takeoffMessages.get(entry.tail)||'Waiting for an aircraft report'):'Takeoff alerts off';
-  identity.append(name,detail);
-  const toggle=document.createElement('button');
-  toggle.type='button';toggle.className='outline';
-  toggle.textContent=entry.enabled?'Pause':'Enable';
-  toggle.setAttribute('aria-label',toggle.textContent+' takeoff alerts for '+entry.tail);
-  toggle.onclick=()=>{
-   entry.enabled=!entry.enabled;
-   takeoffSamples.delete(entry.tail);
-   takeoffMessages.delete(entry.tail);
-   saveTakeoffWatch();
-  };
-  const edit=document.createElement('button');
-  edit.type='button';edit.className='outline';edit.textContent='Edit';
-  edit.setAttribute('aria-label','Edit '+entry.tail);
-  edit.onclick=()=>{
-   form.elements.registration.value=entry.tail;
-   form.elements.nickname.value=entry.nickname;
-   form.elements.enabled.checked=entry.enabled;
-   form.elements.nickname.focus();
-  };
-  const remove=document.createElement('button');
-  remove.type='button';remove.className='outline';remove.textContent='Remove';
-  remove.setAttribute('aria-label','Remove '+entry.tail);
-  remove.onclick=()=>{
-   takeoffWatch.splice(takeoffWatch.indexOf(entry),1);
-   takeoffSamples.delete(entry.tail);
-   takeoffMessages.delete(entry.tail);
-   saveTakeoffWatch();
-  };
-  row.append(identity,toggle,edit,remove);list.append(row);
- }
-}
-function saveTakeoffWatch(){
- writePref(takeoffWatchKey,JSON.stringify(takeoffWatch));
- renderTakeoffWatch();
- if(takeoffWatch.some(entry=>entry.enabled)){
-  if(takeoffTimer===null)takeoffTimer=setInterval(checkTakeoffWatch,120000);
-  checkTakeoffWatch();
- }else{
-  clearInterval(takeoffTimer);
-  takeoffTimer=null;
- }
-}
-function requestTakeoffNotificationPermission(){
- if(!('Notification' in window))return Promise.resolve('unsupported');
- if(Notification.permission!=='default')return Promise.resolve(Notification.permission);
- try{return Promise.resolve(Notification.requestPermission())}
- catch{return Promise.resolve('blocked')}
-}
-function showTakeoffBrowserNotification(message,tag){
- if(!('Notification' in window)||Notification.permission!=='granted')return false;
- try{
-  const notification=new Notification('Weather Command · Takeoff Alert',{body:message,tag});
-  notification.onclick=()=>{window.focus();notification.close()};
-  return true;
- }catch{return false}
-}
-function recordTakeoffSample(entry,position,now=Date.now()){
- if(!position||!Number.isFinite(position.observedAt)||position.observedAt>now||now-position.observedAt>120000||
-    (position.altitude!=='ground'&&!Number.isFinite(position.altitude))){
-  takeoffMessages.set(entry.tail,'No fresh ground or airborne report');
-  return;
- }
- const previous=takeoffSamples.get(entry.tail);
- if(previous&&position.observedAt<=previous.observedAt)return;
- const onGround=position.altitude==='ground';
- takeoffSamples.set(entry.tail,{onGround,observedAt:position.observedAt});
- const time=new Date(position.observedAt).toISOString().slice(11,16)+'Z';
- takeoffMessages.set(entry.tail,(onGround?'On ground':'Airborne')+' · '+time);
- if(!onGround&&previous?.onGround&&position.observedAt-previous.observedAt<=15*60000&&
-    position.observedAt>(entry.lastAlertAt||0)){
-  entry.lastAlertAt=position.observedAt;
-  writePref(takeoffWatchKey,JSON.stringify(takeoffWatch));
-  const message='Takeoff detected: '+(entry.nickname?entry.nickname+' ('+entry.tail+')':entry.tail)+' · '+time;
-  text('#takeoff-notice',message);
-  text('.takeoff-watch-latest',message);
-  showTakeoffBrowserNotification(message,'wc-takeoff-'+entry.tail);
-  takeoffUnread++;
-  text('#takeoff-alerts','Takeoff Alerts ('+takeoffUnread+')');
- }
-}
-async function checkTakeoffWatch(){
- if(takeoffPolling||Date.now()<takeoffRetryAt)return;
- const enabled=takeoffWatch.filter(entry=>entry.enabled);
- if(!enabled.length)return;
- takeoffPolling=true;
- try{
-  for(const [index,entry] of enabled.entries()){
-   if(index)await new Promise(resolve=>setTimeout(resolve,1100));
-   if(!entry.enabled||!takeoffWatch.includes(entry))continue;
-   try{
-    const response=await fetch('/api/aircraft?reg='+encodeURIComponent(entry.tail),{cache:'no-store'});
-    const result=await response.json();
-    if(response.status===429){
-     takeoffRetryAt=Math.max(Date.now()+120000,Number(result.retryAt)||0);
-     for(const row of enabled)takeoffMessages.set(row.tail,'Aircraft feed rate limited · will retry');
-     break;
-    }
-    if(!response.ok)throw Error('Aircraft feed unavailable');
-    if(entry.enabled&&takeoffWatch.includes(entry))recordTakeoffSample(entry,result.position);
-   }catch{
-    takeoffMessages.set(entry.tail,'Aircraft feed unavailable · will retry');
-   }
-  }
- }finally{
-  takeoffPolling=false;
-  $$('[data-takeoff-detail]').forEach(detail=>{
-   const message=takeoffMessages.get(detail.dataset.takeoffDetail);
-   if(message)detail.textContent=message;
-  });
- }
-}
-$('#takeoff-alerts').addEventListener('click',()=>{
- const content=$('#takeoff-watch-template').content.firstElementChild.cloneNode(true);
- const form=content.querySelector('form');
- const registration=form.elements.registration;
- registration.addEventListener('input',()=>registration.setCustomValidity(''));
- content.querySelector('.takeoff-test-button')?.addEventListener('click',()=>{
-  requestTakeoffNotificationPermission().then(permission=>{
-   const sent=permission==='granted'&&showTakeoffBrowserNotification('This is a test browser notification.','wc-test-takeoff');
-   text('.takeoff-watch-latest',sent?'Test notification sent.':'Browser notification unavailable or permission denied. In-page alerts still work while this tab is open.');
-  });
- });
- form.addEventListener('submit',event=>{
-  event.preventDefault();
-  const resolved=resolveAircraftIdentifier(registration.value);
-  const tail=resolved.lookup;
-  if(resolved.error){
-   registration.setCustomValidity(resolved.error);
-   registration.reportValidity();
-   return;
-  }
-  const existing=takeoffWatch.find(entry=>entry.tail===tail);
-  const nickname=form.elements.nickname.value.trim();
-  const enabled=form.elements.enabled.checked;
-  if(enabled)requestTakeoffNotificationPermission();
-  if(existing){
-   if(existing.enabled!==enabled){takeoffSamples.delete(tail);takeoffMessages.delete(tail)}
-   Object.assign(existing,{nickname,enabled});
-  }else takeoffWatch.push({tail,nickname,enabled});
-  form.reset();
-  saveTakeoffWatch();
- });
- showModal('Takeoff Alerts',content);
- takeoffUnread=0;
- text('#takeoff-alerts','Takeoff Alerts');
- text('.takeoff-watch-latest',$('#takeoff-notice').textContent);
- renderTakeoffWatch();
-});
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkTakeoffWatch()});
-if(takeoffWatch.some(entry=>entry.enabled)){
- takeoffTimer=setInterval(checkTakeoffWatch,120000);
- checkTakeoffWatch();
-}
-function watchModalMapSize(node,map){
- // Opening a modal and changing device orientation both alter Leaflet's viewport.
- const resize=()=>{if(current.modalMap===map&&map._container?.isConnected)map.invalidateSize({pan:false,debounceMoveend:true})};
- requestAnimationFrame(()=>requestAnimationFrame(resize));
- setTimeout(resize,200);
- if(typeof ResizeObserver!=='undefined'){
-  current.modalMapResizeObserver?.disconnect();
-  current.modalMapResizeObserver=new ResizeObserver(resize);
-  current.modalMapResizeObserver.observe(node);
- }
-}
-function modalMap(){
- const active=$('.tab.active')?.dataset.map;
- const node=document.createElement('div');node.className='modal-map';
- const mainMap=current.map;
- const center=mainMap?.getCenter()||L.latLng(homeCoords());
- const zoom=mainMap?.getZoom()||7;
- showModal('Regional Radar / Route Map',node,'https://radar.weather.gov/');
- current.modalMap=makeMap(node,zoom);
- current.modalMap.setView(center,zoom,{animate:false});
- if(active==='route'){
-  current.modalRouteLayer=drawRouteOn(current.modalMap);
-  if(current.routeRadarOn)current.modalAnimatedRadar=addRadarLayer(current.modalMap);
- }else current.modalAnimatedRadar=addRadarLayer(current.modalMap);
- const expandedMap=current.modalMap;
- aircraftExpandedMap=expandedMap;
- drawTrackedAircraft(expandedMap,aircraftTrack?.position);
- drawFiledRoute(expandedMap,aircraftTrack?.filedRoute);
- expandedMap.once('unload',()=>{aircraftExpandedMap=null});
- watchModalMapSize(node,current.modalMap);
-}
-$('#expand-map').onclick=()=>{
- const active=$('.tab.active')?.dataset.map;
- if(active==='winds'){
-   const shell=document.createElement('div');
-   shell.className='gfa-winds-expanded';
-   const link=document.createElement('a');link.href='https://aviationweather.gov/gfa/#winds';
-   link.target='_blank';link.rel='noopener noreferrer';
-   link.textContent='Open NOAA full Winds map ↗';
-   const note=document.createElement('p');note.textContent='Choose an altitude and forecast time, then tap a barb’s center dot for direction and speed in knots.';
-   const frame=document.createElement('iframe');frame.src='https://aviationweather.gov/gfa/#winds';
-   frame.title='NOAA GFA Winds interactive forecast';frame.loading='lazy';
-   shell.append(link,note,frame);
-   showModal('NOAA GFA · Winds Aloft',shell,'https://aviationweather.gov/gfa/#winds');
- }else if(charts[active])openChart(active);else modalMap()
-};$('#map-full').onclick=$('#expand-map').onclick;
-// Unattended FBO screens should always animate available radar frames.
-function startRadarLoop(){
- const frames=current.radar?.radar?.past||[];
- if(frames.length<2){clearInterval(current.radarTimer);current.radarTimer=null;current.radarPlaying=false;return}
- if(current.radarTimer)return;
- current.radarPlaying=true;
- current.radarTimer=setInterval(()=>{
-  const frames=current.radar?.radar?.past||[];
-  if(frames.length<2)return;
-  current.radarFrame=(current.radarFrame+1)%frames.length;
-  if(['radar','route'].includes($('.tab.active')?.dataset.map))transitionRadar(current.map,'mapLayer');
-  if(current.modalMap&&current.modalMap._container){
-   if(current.modalAnimatedRadar&&current.modalMap.hasLayer(current.modalAnimatedRadar))current.modalMap.removeLayer(current.modalAnimatedRadar);
-   current.modalAnimatedRadar=addRadarLayer(current.modalMap);
-  }
- },1500);
-}
-$('#play-radar')?.remove();
-async function loadRadar(){try{const r=await fetchJSON('/api/radar');current.radar=r;const frames=r?.radar?.past||[];current.radarFrame=frames.length-1;startRadarLoop();if(['radar','route'].includes($('.tab.active')?.dataset.map)){transitionRadar(current.map,'mapLayer')}drawSmallRouteMap();if(!frames.length)text('#map-caption','No recent radar frames available')}catch(err){text('#map-caption','Radar unavailable · '+err.message);drawSmallRouteMap()}}
-function decodeMETAR(m){if(!m)return '<p>Observation unavailable.</p>';const rows=[['Station',m.icaoId],['Wind',m.wdir==null?'Unavailable':`${m.wdir}° at ${m.wspd??'—'} kt${m.wgst?' gust '+m.wgst+' kt':''}`],['Visibility',m.visib==null?'Unavailable':m.visib+' SM'],['Flight category',m.fltCat||'Unavailable'],['Temperature',m.temp==null?'Unavailable':m.temp+'°C'],['Dew point',m.dewp==null?'Unavailable':m.dewp+'°C'],['Altimeter',m.altim==null?'Unavailable':m.altim+' hPa (source field)']];return rows.map(([a,b])=>`<div><strong>${htmlEscape(a)}</strong><br>${htmlEscape(b)}</div>`).join('')}
-function aviationTab(tab){setTab('aviation',tab);$('#aviation-raw').classList.toggle('hidden',tab==='decoded');$('#aviation-decoded').classList.toggle('hidden',tab!=='decoded');if(tab==='metar')text('#aviation-raw',current.metar?.rawOb||current.homeId+' METAR unavailable');if(tab==='taf')text('#aviation-raw',current.taf?.rawTAF||current.homeId+' TAF unavailable');if(tab==='decoded')$('#aviation-decoded').innerHTML=decodeMETAR(current.metar)}
-$$('[data-aviation]').forEach(b=>b.onclick=()=>aviationTab(b.dataset.aviation));
-async function loadAviation(){try{const d=await fetchJSON('/api/airport-route?ids='+encodeURIComponent(current.homeId));const m=d.metars?.find(x=>codeOf(x)===current.homeId)||null;const t=d.tafs?.find(x=>codeOf(x)===current.homeId)||null;current.metar=m;current.taf=t;text('#dewpoint',m?.dewp!=null?Number(m.dewp).toFixed(0)+'°C':'—');text('#dewpoint-detail',m?.temp!=null&&m?.dewp!=null?'Temp '+Number(m.temp).toFixed(0)+'°C · Dew '+Number(m.dewp).toFixed(0)+'°C':'Dew point observation unavailable');text('#wind',m?.wspd!=null?m.wspd+' kt':'—');text('#windinfo',m?.wdir!=null?`${m.wdir}°${m.wgst?` · gust ${m.wgst} kt`:''}`:'Wind direction unavailable');text('#flightcat',m?.fltCat||'—');text('#flightdetail',m?.visib!=null?`Visibility ${m.visib} SM`:'Category/visibility unavailable');$('#flightcat').style.color=({VFR:'#57e69e',MVFR:'#7ebdff',IFR:'#ff6873',LIFR:'#e88eff'})[m?.fltCat]||'';text('#aviation-time','Observed '+dateTime(m?.obsTime));aviationTab($('.pill.active')?.dataset.aviation||'metar');if(!m)status(current.homeId+' METAR unavailable; not every airport publishes observations.')}catch(err){text('#dewpoint','—');text('#dewpoint-detail','Observation unavailable');status('Aviation observations unavailable: '+err.message)}}
-async function loadForecastSummary(){try{const c=homeCoords();const r=await fetchJSON('/api/location-forecast?lat='+c[0]+'&lon='+c[1]);current.forecast=r;const p=r?.periods?.[0];text('#temp',p?.temperature!=null?`${p.temperature}°${p.temperatureUnit||'F'}`:'—');text('#conditions',p?.shortForecast||'NWS forecast unavailable')}catch(err){text('#conditions','NWS forecast unavailable')}}
-async function loadAlerts(){
- const chip=$('#alerts-chip'),label=$('#alerts-chip-label');
- chip.classList.remove('alerts-chip-clear','alerts-chip-active','alerts-chip-error');
- chip.classList.add('alerts-chip-loading');label.textContent='Checking alerts…';
- try{
-   const c=homeCoords();const d=await fetchJSON('/api/home-alerts?lat='+c[0]+'&lon='+c[1]);
-   const items=Array.isArray(d?.features)?d.features:[];
-   current.alerts=items;current.alertsError='';
-   chip.classList.remove('alerts-chip-loading');
-   if(!items.length){chip.classList.add('alerts-chip-clear');label.textContent='No active alerts';chip.title='No active NWS alerts for '+current.homeId+' · click for details';}
-   else{chip.classList.add('alerts-chip-active');label.textContent=items.length+' active NWS alert'+(items.length===1?'':'s');chip.title='View '+items.length+' NWS alert'+(items.length===1?'':'s')+' near '+current.homeId;}
- }catch(err){
-   current.alerts=[];current.alertsError=err.message;
-   chip.classList.remove('alerts-chip-loading');chip.classList.add('alerts-chip-error');
-   label.textContent='Alerts unavailable';chip.title='NWS alerts could not be checked · click for details';
- }
-}
-function normalize(code){const c=String(code||'').trim().toUpperCase();if(!/^[A-Z0-9]{3,4}$/.test(c))throw Error('Enter a 3- or 4-character airport identifier');return c.length===3&&/^[A-Z]{3}$/.test(c)?'K'+c:c}
-function coordsOf(x){const lat=Number(x?.lat??x?.latitude??x?.latitude_deg??x?.latDecimal),lon=Number(x?.lon??x?.longitude??x?.longitude_deg??x?.lonDecimal);return Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180?[lat,lon]:null}
-function codeOf(x){return String(x?.icaoId??x?.icao??x?.id??x?.ident??x?.stationId??'').toUpperCase()}
-async function lookupAirports(ids){
- const resp=await fetchJSON('/api/airport-route?ids='+encodeURIComponent(ids.join(',')));
- const sameAirport=(x,id)=>[x?.icaoId,x?.icao,x?.id,x?.ident,x?.stationId,x?.gps_code,x?.icao_code,x?.local_code].filter(Boolean).some(code=>String(code).toUpperCase()===id);
- return ids.map(id=>{
-   const metar=resp.metars?.find(x=>sameAirport(x,id))||null;
-   const taf=resp.tafs?.find(x=>sameAirport(x,id))||null;
-   const airport=resp.airports?.find(x=>sameAirport(x,id))||null;
-   const coords=coordsOf(airport)||coordsOf(metar)||(id===current.homeId?homeCoords():null);
-   return {id,metar,taf,airport,coords};
- });
-}
-function distanceNM(a,b){const rad=x=>x*Math.PI/180;const dlat=rad(b[0]-a[0]),dlon=rad(b[1]-a[1]);const h=Math.sin(dlat/2)**2+Math.cos(rad(a[0]))*Math.cos(rad(b[0]))*Math.sin(dlon/2)**2;return 3440.065*2*Math.asin(Math.min(1,Math.sqrt(h)))}
-// Winds-aloft route planning. Forecast direction is the direction wind comes FROM.
-// Each leg uses the same explicitly selected FB station; this is a forecast estimate,
-// not an along-route gridded wind forecast or an aircraft performance calculation.
-const routeWindState={report:null,key:'',error:'',request:0,pending:false};
-const windStation=()=>String($('#route-wind-station')?.value||'').trim().toUpperCase();
-const windRequestKey=()=>`${windStation()}/${$('#route-wind-cycle').value}`;
-function routeBearing(a,b){
- const toRad=v=>v*Math.PI/180,fromRad=v=>v*180/Math.PI;
- const y=Math.sin(toRad(b[1]-a[1]))*Math.cos(toRad(b[0]));
- const x=Math.cos(toRad(a[0]))*Math.sin(toRad(b[0]))-Math.sin(toRad(a[0]))*Math.cos(toRad(b[0]))*Math.cos(toRad(b[1]-a[1]));
- return (fromRad(Math.atan2(y,x))+360)%360;
-}
-function windVector(direction,speed){
- const angle=direction*Math.PI/180;
- return {east:-speed*Math.sin(angle),north:-speed*Math.cos(angle)};
-}
-function windAtAltitude(rows,alt){
- const usable=(rows||[]).filter(r=>Number.isFinite(r.altitude)&&Number.isFinite(r.speed)&&r.speed>=0&&(r.calm||Number.isFinite(r.direction))).sort((a,b)=>a.altitude-b.altitude);
- const highIndex=usable.findIndex(r=>r.altitude>=alt);
- if(highIndex<0)return null;
- const high=usable[highIndex];
- if(high.altitude===alt)return windVector(high.direction||0,high.speed);
- if(highIndex===0)return null;
- const low=usable[highIndex-1];
- const a=windVector(low.direction||0,low.speed),b=windVector(high.direction||0,high.speed);
- const ratio=(alt-low.altitude)/(high.altitude-low.altitude);
- return {east:a.east+(b.east-a.east)*ratio,north:a.north+(b.north-a.north)*ratio};
-}
-function routeLegSpeed(tas,bearing,w){
- const t=bearing*Math.PI/180;
- const along=w.north*Math.cos(t)+w.east*Math.sin(t);
- const cross=w.east*Math.cos(t)-w.north*Math.sin(t);
- if(Math.abs(cross)>=tas)return null; // aircraft cannot hold this track
- const gs=Math.sqrt(tas*tas-cross*cross)+along;
- return gs>1?{gs,along,cross,wca:Math.asin(-cross/tas)*180/Math.PI}:null;
-}
-function calculateRoute(){
- const root=$('#route-leg-breakdown');root?.replaceChildren();
- let sum=0,complete=current.route.length>1;
- for(let i=1;i<current.route.length;i++){
-  const a=current.route[i-1].coords,b=current.route[i].coords;
-  if(a&&b)sum+=distanceNM(a,b);else complete=false;
- }
- const tas=Number($('#groundspeed').value),gph=Number($('#fuelburn').value),alt=Number($('#route-altitude').value);
- const valid=complete&&tas>0&&gph>0;
- const directionInput=$('#route-wind-manual-direction'),speedInput=$('#route-wind-manual-speed');
- const manual=directionInput.value!==''||speedInput.value!==''||directionInput.validity.badInput||speedInput.validity.badInput;
- const manualValid=!manual||(directionInput.value!==''&&speedInput.value!==''&&directionInput.validity.valid&&speedInput.validity.valid);
- const report=routeWindState.key===windRequestKey()?routeWindState.report:null;
- const pending=!manual&&routeWindState.pending;
- const wind=manual
-  ? (manualValid?windVector(directionInput.valueAsNumber,speedInput.valueAsNumber):null)
-  : (report?.available?windAtAltitude(report.rows,alt):null);
- let hours=0,impossible=false;
- if(valid&&manualValid&&!pending){for(let i=1;i<current.route.length;i++){
-  const prev=current.route[i-1],next=current.route[i],nm=distanceNM(prev.coords,next.coords),heading=routeBearing(prev.coords,next.coords);
-  const correction=wind?routeLegSpeed(tas,heading,wind):{gs:tas,along:0,cross:0,wca:0};
-  if(!correction){impossible=true;break}
-  const legHours=nm/correction.gs;hours+=legHours;
-  if(root){const line=document.createElement('div');line.className='route-leg-line';line.textContent=`${prev.id} → ${next.id} · ${nm.toFixed(1)} NM · ${Math.round(heading).toString().padStart(3,'0')}° true · ${correction.gs.toFixed(0)} kt GS · ${Math.round(legHours*60)} min${wind?' · '+(correction.along>=0?'tailwind ':'headwind ')+Math.abs(correction.along).toFixed(0)+' kt':''}`;root.append(line)}
+function setClock(){set('header-time',new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));}
+function setAuto(on){state.auto=on;const b=$('btn-auto');b.classList.toggle('active',on);b.setAttribute('aria-pressed',String(on));b.innerHTML=on?'<span class="blinkdot"></span><span> AUTO ON</span>':'<span> AUTO OFF</span>';localStorage.setItem('bills-auto',String(on));}
+function setCompact(on){state.compact=on;document.documentElement.classList.toggle('compact-mode',on);$('btn-compact').classList.toggle('active',on);$('btn-compact').setAttribute('aria-pressed',String(on));localStorage.setItem('bills-compact',String(on))}
+function setFridge(on){document.documentElement.classList.toggle('fridge-mode',on);const b=$('btn-fridge');b.classList.toggle('active',on);b.setAttribute('aria-pressed',String(on));localStorage.setItem('bills-fridge',String(on))}
+function setArrange(on){state.arrange=on;document.documentElement.classList.toggle('arrange-mode',on);$('btn-arrange').classList.toggle('selected',on);$('btn-arrange').textContent=on?'DONE ARRANGING':'ARRANGE PANELS';$('btn-arrange').setAttribute('aria-pressed',String(on));for(const p of document.querySelectorAll('.column .panel'))p.draggable=on}
+function saveLayout(){const out={};for(const zone of document.querySelectorAll('[data-zone]'))out[zone.dataset.zone]=Array.from(zone.querySelectorAll(':scope > .panel')).map(p=>p.dataset.panel);localStorage.setItem('bills-panel-layout',JSON.stringify(out))}
+function restoreLayout(){try{const data=JSON.parse(localStorage.getItem('bills-panel-layout')||'{}');for(const zone of document.querySelectorAll('[data-zone]')){const ids=data[zone.dataset.zone]||[];for(const id of ids){const child=zone.querySelector(`[data-panel="${CSS.escape(id)}"]`);if(child)zone.appendChild(child)}}}catch{}}
+let dragPanel=null;
+function initDrag(){for(const zone of document.querySelectorAll('[data-zone]')){
+ zone.addEventListener('dragstart',e=>{if(!state.arrange)return;e.dataTransfer.effectAllowed='move';dragPanel=e.target.closest('.panel');if(!dragPanel)return;dragPanel.classList.add('dragging');e.dataTransfer.setData('text/plain',dragPanel.id)});
+ zone.addEventListener('dragover',e=>{if(!state.arrange||!dragPanel)return;e.preventDefault();const target=e.target.closest('.panel');if(target&&target!==dragPanel&&target.parentElement===zone){target.classList.add('drag-over')}});
+ zone.addEventListener('dragleave',e=>e.target.closest('.panel')?.classList.remove('drag-over'));
+ zone.addEventListener('drop',e=>{if(!state.arrange||!dragPanel)return;e.preventDefault();const target=e.target.closest('.panel');if(target&&target!==dragPanel&&target.parentElement===zone){const mid=target.getBoundingClientRect().top+target.getBoundingClientRect().height/2;target.parentNode.insertBefore(dragPanel,e.clientY<mid?target:target.nextSibling);saveLayout()}document.querySelectorAll('.drag-over').forEach(p=>p.classList.remove('drag-over'))});
+ zone.addEventListener('dragend',()=>{dragPanel?.classList.remove('dragging');document.querySelectorAll('.drag-over').forEach(p=>p.classList.remove('drag-over'));dragPanel=null});
  }}
- const estimated=valid&&sum>0&&manualValid&&!pending&&!impossible;
- text('#distance',complete?sum.toFixed(0)+' NM':'—');
- text('#ete',estimated?(hours*60).toFixed(0)+' min':'—');
- text('#fuel',estimated?(hours*gph).toFixed(1)+' gal':'—');
- text('#route-time-label',!valid?'ESTIMATED TIME':!manualValid?'CHECK WIND INPUT':pending?'LOADING WINDS':impossible?'TRACK UNAVAILABLE':wind?(manual?'TIME · MANUAL WIND':report.stale?'TIME · CACHED WIND':'TIME · FORECAST WIND'):'TIME · STILL AIR');
- const msg=$('#route-wind-summary');
- if(msg){
-  msg.classList.toggle('has-winds',estimated&&Boolean(wind));
-  if(!valid||sum===0)msg.textContent='Enter a valid route, TAS and fuel burn to calculate travel time.';
-  else if(!manualValid)msg.textContent='Enter both manual wind direction (degrees true, from) and wind speed (knots), or clear both to use the forecast.';
-  else if(pending)msg.textContent=`Loading ${windStation()} winds aloft…`;
-  else if(impossible)msg.textContent='The selected wind and TAS do not allow progress along at least one planned leg.';
-  else if(wind){
-   const speed=Math.hypot(wind.east,wind.north);
-   const from=Math.round((Math.atan2(-wind.east,-wind.north)*180/Math.PI+360)%360)%360;
-   const windLabel=speed<0.5?'Calm':`${speed.toFixed(0)} kt from ${String(from).padStart(3,'0')}° true`;
-   const source=manual?'Manual cruise wind':`${report.stale?'Previous ':''}${report.modelGuidance?'GFS model':'Official FB'} · ${windStation()} · ${alt.toLocaleString()} ft MSL`;
-   const validTime=manual?'':report.header?.find(h=>/VALID/i.test(h));
-   msg.textContent=`${source} · ${windLabel} · Avg ${(sum/hours).toFixed(0)} kt GS${validTime?' · '+validTime:''}`;
-  }else{
-   const reason=report?'No forecast covers the selected cruise altitude':routeWindState.error||'No winds-aloft forecast loaded';
-   msg.textContent=`STILL-AIR ONLY · ${reason} · ${tas.toFixed(0)} kt TAS used as groundspeed. Enter manual cruise wind to apply a correction.`;
-  }
- }
- return valid;
+let modalPanel=null,modalPlaceholder=null;
+function openModal(panelId){if(modalPanel)closeModal();const panel=$(panelId);if(!panel)return;
+ modalPanel=panel;modalPlaceholder=document.createComment('panel original position');panel.parentNode.insertBefore(modalPlaceholder,panel);$('modal-host').appendChild(panel);$('modal-title').textContent=panel.querySelector('.panel-head h2')?.textContent||'EXPANDED VIEW';$('modal').hidden=false;document.body.style.overflow='hidden';$('modal-close').focus()}
+function closeModal(){if(!modalPanel)return;modalPlaceholder.parentNode.insertBefore(modalPanel,modalPlaceholder);modalPlaceholder.remove();modalPlaceholder=null;modalPanel=null;$('modal').hidden=true;document.body.style.overflow=''}
+function init(){
+ setAuto(localStorage.getItem('bills-auto')!=='false');setCompact(localStorage.getItem('bills-compact')==='true');setFridge(location.search.includes('fridge=1')||(!location.search.includes('fridge=0')&&localStorage.getItem('bills-fridge')==='true'));restoreLayout();initDrag();setClock();setInterval(setClock,15000);
+ $('btn-fridge').addEventListener('click',()=>setFridge(!document.documentElement.classList.contains('fridge-mode')));$('btn-refresh').addEventListener('click',()=>refreshFull(true));$('btn-auto').addEventListener('click',()=>setAuto(!state.auto));$('btn-compact').addEventListener('click',()=>setCompact(!state.compact));
+ $('btn-wall').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen()}catch(err){set('refresh-message','Fullscreen unavailable in this browser')}});
+ $('btn-arrange').addEventListener('click',()=>setArrange(!state.arrange));$('btn-reset').addEventListener('click',()=>{localStorage.removeItem('bills-panel-layout');location.reload()});
+ $('roster-search').addEventListener('input',e=>{state.rosterSearch=e.target.value;state.data&&renderRoster()});$('roster-filter').addEventListener('change',e=>{state.rosterFilter=e.target.value;state.data&&renderRoster()});
+ document.addEventListener('click',e=>{const btn=e.target.closest('[data-expand]');if(btn)openModal(btn.dataset.expand)});$('modal-close').addEventListener('click',closeModal);$('modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+ document.querySelectorAll('.nav-item').forEach(a=>a.addEventListener('click',()=>{document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('current'));a.classList.add('current');closeModal()}));
+ refreshFull();liveTimer=setInterval(refreshLive,30000);fullTimer=setInterval(()=>{if(state.auto)refreshFull()},180000);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.auto){refreshLive();if(state.data&&Date.now()-Date.parse(state.lastSuccess||0)>300000)refreshFull()}});
 }
-async function loadRouteWinds(){
- const station=windStation(),cycle=$('#route-wind-cycle').value,key=windRequestKey();
- const request=++routeWindState.request;routeWindState.report=null;routeWindState.key=key;routeWindState.error='';routeWindState.pending=false;
- if(!/^[A-Z]{3}$/.test(station)){routeWindState.error='Enter a published 3-letter FB winds station (e.g. OMA or OFK)';calculateRoute();return}
- if(!current.route.length){calculateRoute();return}
- routeWindState.pending=true;calculateRoute();
- try{const report=await fetchJSON(`/api/winds-aloft?station=${encodeURIComponent(station)}&fcst=${encodeURIComponent(cycle)}`);
-  if(request!==routeWindState.request)return;
-  if(!report.available||!report.rows?.length)throw Error(`No ${station} FB forecast available`);
-  routeWindState.report=report;
- }catch(err){if(request!==routeWindState.request)return;routeWindState.error=err.message}
- routeWindState.pending=false;calculateRoute();
-}
-$('#route-wind-refresh').addEventListener('click',loadRouteWinds);
-for(const name of ['groundspeed','fuelburn','route-altitude','route-wind-manual-direction','route-wind-manual-speed'])$('#'+name).addEventListener('input',calculateRoute);
-for(const name of ['route-wind-cycle','route-wind-station'])$('#'+name).addEventListener('change',loadRouteWinds);
-$('#route-wind-station').addEventListener('input',()=>{routeWindState.request++;routeWindState.report=null;routeWindState.pending=false;routeWindState.error='Forecast station changed; update route winds';calculateRoute()});
-function updateForecastLocations(){const selected=$('#forecast-select').value;const opts=[{id:current.homeId},...current.route.filter(x=>x.id!==current.homeId)].filter((p,i,a)=>a.findIndex(x=>x.id===p.id)===i);$('#forecast-select').replaceChildren();opts.forEach(p=>{const option=document.createElement('option');option.value=p.id;option.textContent=p.id;$('#forecast-select').append(option)});$('#forecast-select').value=opts.some(x=>x.id===selected)?selected:current.homeId;loadLocationForecast()}
-
-const categoryClass=cat=>['VFR','MVFR','IFR','LIFR'].includes(cat)?cat.toLowerCase():'unknown';
-function routeMarker(p,index){
- const c=categoryClass(p.metar?.fltCat);
- const sym=index===0?'D':index===current.route.length-1?'A':String(index);
- return L.divIcon({className:'',html:`<div class="route-airport-marker ${c}">${htmlEscape(sym)}</div>`,iconSize:[23,23],iconAnchor:[11,11]});
-}
-function routePopup(p,index){
- const category=htmlEscape(p.metar?.fltCat||'No reported flight category');
- const observed=htmlEscape(dateTime(p.metar?.obsTime));
- const raw=htmlEscape(p.metar?.rawOb||'No METAR available');
- const taf=htmlEscape(p.taf?.rawTAF||'No published TAF');
- return `<div class="route-pop"><strong>${htmlEscape(p.id)} · ${category}</strong><div>${index===0?'Departure':index===current.route.length-1?'Destination':'Intermediate stop'} · ${observed}</div><b>METAR</b><pre>${raw}</pre><b>TAF</b><pre>${taf}</pre></div>`;
-}
-function routeBounds(map){
- const points=current.route.filter(p=>p.coords).map(p=>p.coords);
- if(points.length>1)map.fitBounds(L.latLngBounds(points).pad(.20),{maxZoom:10});
- else if(points.length===1)map.setView(points[0],8);
- else map.setView(homeCoords(),current.mapStyle==='sectional'?8:7);
-}
-function routeLayers(map,{withRadar=true}={}){
- const pts=current.route.filter(p=>p.coords);
- const routeLayer=L.layerGroup().addTo(map);
- // Missing-coordinate airports are intentionally omitted, never placed at a made-up position.
- current.route.forEach((p,i)=>{if(!p.coords)return;L.marker(p.coords,{icon:routeMarker(p,i)}).addTo(routeLayer).bindPopup(routePopup(p,i),{maxWidth:310})});
- if(pts.length>=2)L.polyline(pts.map(p=>p.coords),{color:'#4ce2ff',weight:4,opacity:.98,dashArray:'9 6'}).addTo(routeLayer);
- if(!pts.length)L.marker(homeCoords()).addTo(routeLayer).bindPopup(current.homeId+' · Home airport');
- const radarLayer=withRadar?addRadarLayer(map):null;
- routeBounds(map);
- return {routeLayer,radarLayer};
-}
-function initRouteWeatherMap(){
- if(!$('#route-weather-map')||current.routeWeatherMap||!window.L)return;
- current.routeWeatherMap=makeMap('route-weather-map',7);
- drawSmallRouteMap();
-}
-function drawSmallRouteMap(){
- const map=current.routeWeatherMap;if(!map)return;
- if(current.routeWeatherLayer){map.removeLayer(current.routeWeatherLayer);current.routeWeatherLayer=null}
- if(current.routeRadarLayer){map.removeLayer(current.routeRadarLayer);current.routeRadarLayer=null}
- const {routeLayer,radarLayer}=routeLayers(map,{withRadar:current.routeRadarOn});
- current.routeWeatherLayer=routeLayer;current.routeRadarLayer=radarLayer;
- text('#route-map-message',!current.route.length?'Enter a route to see airports, radar and a connecting line.':current.route.some(p=>!p.coords)?'Some airport locations were unavailable; those stops cannot be plotted.':'Click any marker for METAR and TAF.');
- const frame=latestRadarFrame();text('#route-map-stamp',frame&&current.routeRadarOn?'Radar '+dateTime(frame.time):current.routeRadarOn?'Radar unavailable':'Radar hidden');
- setTimeout(()=>map.invalidateSize(),80);
-}
-function expandRouteMap(){
- const shell=document.createElement('div');
- const toolbar=document.createElement('div');toolbar.className='modal-route-toolbar';
- const info=document.createElement('span');info.textContent='Click airport markers for observations. Route legs are straight-line approximations.';
- const label=document.createElement('label');label.className='radar-toggle';
- const input=document.createElement('input');input.type='checkbox';input.checked=current.routeRadarOn;
- label.append(input,document.createTextNode(' Radar overlay'));toolbar.append(info,label);
- const mapNode=document.createElement('div');mapNode.className='modal-route-map';
- shell.append(toolbar,mapNode);
- showModal('Route Weather Map',shell,'https://www.1800wxbrief.com/');
- current.modalMap=makeMap(mapNode,7);
- let layers=routeLayers(current.modalMap,{withRadar:input.checked});
- current.modalRouteLayer=layers.routeLayer;current.modalRouteRadarLayer=layers.radarLayer;
- input.onchange=()=>{current.routeRadarOn=input.checked;$('#route-radar').checked=input.checked;
-   if(current.modalRouteRadarLayer)current.modalMap.removeLayer(current.modalRouteRadarLayer);
-   current.modalRouteRadarLayer=input.checked?addRadarLayer(current.modalMap):null;drawSmallRouteMap()};
- watchModalMapSize(mapNode,current.modalMap);
-}
-if($('#expand-route-map'))$('#expand-route-map').onclick=expandRouteMap;
-if($('#route-radar'))$('#route-radar').onchange=e=>{current.routeRadarOn=e.target.checked;drawSmallRouteMap()};
-
-function drawRouteWeather(){const host=$('#route-weather');if(!host)return;host.replaceChildren();if(!current.route.length){host.textContent='No route has been entered.';return}for(const p of current.route){const line=document.createElement('div');line.className='airport-row';const btn=document.createElement('button');btn.textContent=p.id;btn.title='Show airport weather';btn.onclick=()=>openAirport(p);const cat=document.createElement('span');cat.textContent=p.metar?.fltCat||'NO METAR';cat.className='category '+(p.metar?.fltCat||'');line.append(btn,cat);host.append(line)}}
-async function loadRoute(e){e?.preventDefault();let ids;try{ids=[normalize($('#route-from').value),...$('#route-via').value.split(',').map(x=>x.trim()).filter(Boolean).map(normalize),normalize($('#route-to').value)];if(ids.length>12)throw Error('Use at most 12 airports');}catch(err){text('#route-status',err.message);return}const button=$('#route-form button[type=submit]');button.disabled=true;text('#route-status','Loading airport observations and route positions…');try{current.route=await lookupAirports(ids);loadRouteWinds();const can=calculateRoute();drawRouteWeather();drawSmallRouteMap();const found=current.route.filter(x=>x.metar).length;const noReports=current.route.filter(x=>!x.metar).map(x=>x.id);text('#route-status',`${found}/${ids.length} airport METARs available · ${can?'Straight-line distance shown; loading forecast winds for ETA/fuel.':'Some airport coordinates unavailable; estimate not calculated.'}${noReports.length?' No on-field METAR: '+noReports.join(', ')+'.':''} Not an operational flight plan.`);updateForecastLocations();if($('.tab.active')?.dataset.map==='route')mapMode('route')}catch(err){showRouteInputs();text('#route-status','Route calculation unavailable: '+err.message)}finally{button.disabled=false}}
-$('#route-form').addEventListener('submit',loadRoute);
-// Reflect route inputs immediately, including when weather observations are unavailable.
-function showRouteInputs(){
- const from=String($('#route-from')?.value||$('#quick-from')?.value||current.homeId).trim().toUpperCase();
- const to=String($('#route-to')?.value||$('#quick-to')?.value||'').trim().toUpperCase();
- text('#route-current-from',from||current.homeId);
- text('#route-current-to',to||'Enter destination');
-}
-['#route-to','#route-from','#quick-to','#quick-from'].forEach(selector=>{
- $(selector)?.addEventListener('input',()=>{
-  if(selector==='#quick-to')$('#route-to').value=$('#quick-to').value;
-  if(selector==='#quick-from')$('#route-from').value=$('#quick-from').value;
-  showRouteInputs();
- });
-});
-showRouteInputs();
-// Airport lookup includes independent NOTAM retrieval for the LOOKED-UP airport,
-// not the home airport. Data remains labeled as staging when NMS_API_ENV=test.
-async function loadAirportPopupNotams(airport,holder){
- const heading=document.createElement('div');heading.className='airport-notam-title';
- const label=document.createElement('strong');label.textContent=airport+' · FAA NOTAMs';
- const refresh=document.createElement('button');refresh.type='button';refresh.className='outline';refresh.textContent='Refresh';
- heading.append(label,refresh);holder.append(heading);
- const state=document.createElement('p');state.className='airport-notam-status';state.setAttribute('role','status');holder.append(state);
- const list=document.createElement('div');list.className='airport-popup-notam-list';holder.append(list);
- let requestId=0;
- async function load(){
-   const call=++requestId;refresh.disabled=true;state.textContent='Checking FAA NMS NOTAMs for '+airport+'…';list.replaceChildren();
-   const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),30000);
-   try{
-     const response=await fetch('/api/notams?airport='+encodeURIComponent(airport),{signal:controller.signal,cache:'no-store'});
-     const data=await response.json().catch(()=>({error:'Invalid NOTAM response'}));
-     if(!response.ok)throw Error(data.error||'FAA NMS request failed (HTTP '+response.status+').');
-     if(call!==requestId||!holder.isConnected)return;
-     if(!Array.isArray(data.notams))throw Error('FAA NMS response does not contain a recognized notice list.');
-     const testing=data.environment==='test';
-     const total=Number.isFinite(data.total)?data.total:data.notams.length;
-     state.textContent=(testing?'TEST ENVIRONMENT — NOT FOR FLIGHT USE · ':'')+total+' NOTAM'+(total===1?'':'s')+' returned for '+airport+' · checked '+dateTime(data.checkedAt)+(data.limited?' · provider results may be limited':'')+(data.cached?' · cached '+(data.cacheAgeSeconds||0)+'s ago':'');
-     if(testing)state.classList.add('test');else state.classList.remove('test');
-     if(data.notams.length===0){const empty=document.createElement('p');empty.className='fine';empty.textContent='The FAA NMS '+(testing?'test':'')+' service returned no notices for '+airport+'. This does not replace an official briefing.';list.append(empty);return;}
-     for(const n of data.notams){
-       const item=document.createElement('article');item.className='airport-popup-notam';
-       const top=document.createElement('div');top.className='notam-item-top';
-       const number=document.createElement('strong');number.textContent=n.number||'NOTAM';
-       const tag=document.createElement('span');tag.className='notam-tag '+(n.isTfr?'critical':String(n.categoryCode||'other').toLowerCase());tag.textContent=n.category||'Other';top.append(number,tag);
-       const reading=document.createElement('p');reading.textContent=n.reading||n.text||'Description unavailable';
-       const dates=document.createElement('small');dates.textContent='Effective '+(n.start?dateTime(n.start):'unknown')+' — '+(n.end?dateTime(n.end):'permanent / unknown');
-       const detail=document.createElement('details');const summary=document.createElement('summary');summary.textContent='Full NOTAM text';
-       const raw=document.createElement('pre');raw.textContent=n.text||'Raw text unavailable';detail.append(summary,raw);
-       item.append(top,reading,dates,detail);list.append(item);
-     }
-   }catch(err){
-     if(call!==requestId||!holder.isConnected)return;
-     state.classList.remove('test');state.textContent=(err.name==='AbortError'?'FAA NMS request timed out.':err.message)+' No notices are being represented as current.';
-   }finally{clearTimeout(timer);if(call===requestId&&holder.isConnected)refresh.disabled=false;}
- }
- refresh.addEventListener('click',load);
- await load();
-}
-
-function airportInfoRow(label,value){
- if(value==null||value==='')return null;
- const line=document.createElement('div');line.className='airport-info-line';
- const name=document.createElement('strong');name.textContent=label;
- const val=document.createElement('span');val.textContent=String(value);
- line.append(name,val);return line;
-}
-function fieldFrom(obj,...keys){for(const key of keys){const v=obj?.[key];if(v!=null&&v!==''&&v!==0)return v}return null}
-async function loadAirportDetails(id,section,stationData){
- const tag=document.createElement('h3');tag.textContent='Airport & trip-planning information';section.append(tag);
- const box=document.createElement('div');box.className='airport-info-grid';section.append(box);
- const message=document.createElement('p');message.className='fine';message.textContent='Loading airport facilities and communications…';section.append(message);
- const links=document.createElement('div');links.className='airport-info-links';section.append(links);
- function external(label,url){const a=document.createElement('a');a.textContent=label+' ↗';a.href=url;a.rel='noopener noreferrer';a.target='_blank';links.append(a)}
- external('FAA Chart Supplement / airport search','https://www.faa.gov/air_traffic/flight_info/aeronav/digital_products/dafd/');
- external('FAA airport data','https://adip.faa.gov/agis/public/#/airportData/'+encodeURIComponent(id));
- external('AirNav airport information','https://www.airnav.com/airport/'+encodeURIComponent(id));
- try{
-  const d=await fetchJSON('/api/airport-info?id='+encodeURIComponent(id));
-  if(!section.isConnected)return;
-  const a=d.airport||stationData||{};
-  const rows=[
-   ['Airport',fieldFrom(a,'name','airportName','site')],
-   ['City / State',[fieldFrom(a,'city','municipality'),fieldFrom(a,'state','stateCode','region')].filter(Boolean).join(', ')],
-   ['Airport type',fieldFrom(a,'type')],
-   ['Control tower',a.controlTower?String(a.controlTower)+(a.controlTowerSource?' · '+a.controlTowerSource:''):'Not independently verified'],
-   ['Airspace / class',a.airspaceClass?'Class '+a.airspaceClass+(a.airspaceSource?' · '+a.airspaceSource:''):'Not verified — refer to current FAA sectional'],
-   ['Field elevation (MSL)',Number.isFinite(Number(a.fieldElevationFt))&&a.fieldElevationFt!=null?Number(a.fieldElevationFt).toLocaleString('en-US',{maximumFractionDigits:1})+' ft'+(a.fieldElevationSource?' · '+a.fieldElevationSource:''):'Not verified — refer to FAA Chart Supplement'],
-   ['Airport telephone',fieldFrom(a,'phone','telephone','airportPhone')],
-   ['Fuel reported',fieldFrom(a,'fuel','fuelTypes')],
-   ['Services / FBO',fieldFrom(a,'services','fbo','fboName')],
-  ];
-  for(const [label,value] of rows){const row=airportInfoRow(label,value);if(row)box.append(row)}
-  if(d.frequencies?.length){const h=document.createElement('h4');h.textContent='Radio frequencies (community dataset)';box.append(h);for(const f of d.frequencies.slice(0,25)){const row=airportInfoRow(f.type||'COM',String(f.mhz)+' MHz'+(f.description?' · '+f.description:''));if(row)box.append(row)}}
-  if(d.runways?.length){const h=document.createElement('h4');h.textContent='Runways (community dataset)';box.append(h);for(const r of d.runways.slice(0,12)){const label=[r.le_ident,r.he_ident].filter(Boolean).join(' / ')||'Runway';const dims=[r.length_ft&&r.length_ft+' ft',r.width_ft&&'× '+r.width_ft+' ft',r.surface].filter(Boolean).join(' ');const row=airportInfoRow(label,dims);if(row)box.append(row)}}
-  message.textContent=(d.frequencies?.length||d.runways?.length)?'Runways and frequencies are from OurAirports (community data). Airport elevation and airspace show their own sources above. Verify every value against current FAA publications, NOTAMs and airport/FBO.':'Detailed runways, communications, FBOs, fuel, and phones are not available from the connected data sources for this airport. Use official sources above to verify.';
- }catch(err){message.textContent='Airport details unavailable: '+err.message+'. Elevation and airspace are not verified. Use the official FAA sources linked above.';const a=stationData||{};const row=airportInfoRow('Airport',fieldFrom(a,'name','airportName'));if(row)box.append(row)}
-}
-
-function openAirport(p){
- const block=document.createElement('div');
- block.innerHTML=`<div class="modal-row"><strong>${htmlEscape(p.id)}</strong> · ${htmlEscape(p.metar?.fltCat||'No reported flight category')} · ${htmlEscape(dateTime(p.metar?.obsTime))}</div><div class="modal-row"><strong>METAR</strong><pre>${htmlEscape(p.metar?.rawOb||'No current observation available.')}</pre></div><div class="modal-row"><strong>TAF</strong><pre>${htmlEscape(p.taf?.rawTAF||'No published TAF for this airport.')}</pre></div>`;
- const info=document.createElement('section');info.className='modal-row airport-details-section';block.append(info);const section=document.createElement('section');section.className='modal-row airport-notam-section';block.append(section);
- const btn=document.createElement('button');btn.className='primary';btn.textContent='Show multi-day forecast for this airport';
- btn.onclick=()=>{$('#forecast-select').value=p.id;closeModal();scrollToPanel('forecast-section');loadLocationForecast()};
- if([...$('#forecast-select').options].some(x=>x.value===p.id))block.append(btn);
- showModal(p.id+' · Airport Weather & NOTAMs',block,'https://aviationweather.gov/');
- loadAirportDetails(p.id,info,p.airport);loadAirportPopupNotams(p.id,section);
-}
-$('#airport-search').onsubmit=async e=>{e.preventDefault();let id;try{id=normalize($('#airport-id').value)}catch(err){status(err.message);return}status(`Looking up ${id}…`);try{const [p]=await lookupAirports([id]);current.route.some(x=>x.id===id)||current.route.push(p);updateForecastLocations();status('');openAirport(p)}catch(err){status('Airport lookup failed: '+err.message)}};
-function iconFor(x){const s=String(x||'').toLowerCase();if(/thunder/.test(s))return '⛈';if(/snow|sleet|ice/.test(s))return '❄';if(/rain|shower|drizzle/.test(s))return '🌧';if(/cloud|overcast/.test(s))return '☁';if(/fog|haze/.test(s))return '≋';return '☀'}
-function forecastTiles(periods){const host=$('#forecast-days');host.replaceChildren();const daytime=periods.filter(p=>p.isDaytime);const samples=daytime.length?daytime.slice(0,5):periods.slice(0,5);for(const p of samples){const tile=document.createElement('div');tile.className='day';const day=document.createElement('strong');day.textContent=p.name||'Period';const symbol=document.createElement('div');symbol.className='symbol';symbol.textContent=iconFor(p.shortForecast);const t=document.createElement('div');t.className='temperature';t.textContent=p.temperature!=null?p.temperature+'°':'—';const info=document.createElement('small');info.textContent=p.shortForecast||'Forecast unavailable';const wind=document.createElement('small');wind.textContent=[p.windDirection,p.windSpeed].filter(Boolean).join(' ')||'Wind unavailable';tile.append(day,symbol,t,info,wind);host.append(tile)}if(!samples.length)host.textContent='No forecast periods available.'}
-async function loadLocationForecast(){const id=$('#forecast-select').value||current.homeId;const p=current.route.find(x=>x.id===id);const coords=p?.coords||(id===current.homeId?homeCoords():null);if(!coords){text('#forecast-status',`${id}: Coordinates unavailable for NWS forecast`);return}text('#forecast-status','Loading NWS forecast near '+id+'…');try{const data=await fetchJSON(`/api/location-forecast?lat=${coords[0]}&lon=${coords[1]}`);forecastTiles(data.periods||[]);text('#forecast-status',id+' · NWS general forecast, not an aviation flight category or TAF.');text('#forecast-updated',dateTime(data.updated))}catch(err){text('#forecast-status','NWS forecast unavailable: '+err.message);text('#forecast-days','No forecast available')}}
-$('#forecast-select').onchange=loadLocationForecast;
-function modalSection(type){let content=document.createElement('div'),source='';switch(type){case'airport':content.innerHTML=`<div class="modal-row"><strong>METAR</strong><pre>${htmlEscape(current.metar?.rawOb||'Unavailable')}</pre></div><div class="modal-row"><strong>TAF</strong><pre>${htmlEscape(current.taf?.rawTAF||'Unavailable')}</pre></div><div class="modal-row">${decodeMETAR(current.metar)}</div>`;source='https://aviationweather.gov/';break;case'route':content.innerHTML=`<p class="source-note">Straight-line segment estimates only; terrain, airspace, winds, hazards, NOTAMs and route clearance are not evaluated. Official briefing required.</p>`;for(const p of current.route){const row=document.createElement('div');row.className='modal-row';row.innerHTML=`<strong>${htmlEscape(p.id)} · ${htmlEscape(p.metar?.fltCat||'No category')}</strong><pre>${htmlEscape(p.metar?.rawOb||'No METAR')}</pre><pre>${htmlEscape(p.taf?.rawTAF||'No published TAF')}</pre>`;content.append(row)}source='https://www.1800wxbrief.com/';break;case'forecast':content.innerHTML='<p class="source-note">Choose an airport from the dashboard forecast selector to update the five-period forecast. Detailed forecast products are available from NWS.</p>';source='https://www.weather.gov/';break;case'winds':if(lastWindReport?.available){content.append(windRowsToElement(lastWindReport))}else content.innerHTML='<p>Official winds aloft unavailable. Use the AWC link for source data.</p>';source='https://aviationweather.gov/windtemp';break;case'models':content.innerHTML='<p>Open NOAA operational products for live HRRR and GFS model runs. Full interactive model animation is not included in this release.</p><div class="modal-row"><a href="https://www.nco.ncep.noaa.gov/pmb/products/hrrr/" target="_blank" rel="noopener">HRRR model charts ↗</a></div><div class="modal-row"><a href="https://www.nco.ncep.noaa.gov/pmb/products/gfs/" target="_blank" rel="noopener">GFS model charts ↗</a></div>';source='https://nomads.ncep.noaa.gov/';break;case'alerts':for(const a of current.alerts){const row=document.createElement('div');row.className='modal-row';row.innerHTML=`<strong>${htmlEscape(a.properties?.event||'Alert')}</strong><p>${htmlEscape(a.properties?.areaDesc||'')}</p><p>${htmlEscape(a.properties?.headline||'')}</p><p>${htmlEscape(a.properties?.description||'')}</p>`;content.append(row)}if(!current.alerts.length)content.textContent=current.alertsError?'NWS weather alerts could not be retrieved: '+current.alertsError:'No active NWS weather alerts reported for '+current.homeId+'.';source='https://www.weather.gov/';break}showModal(({airport:current.homeId+' Aviation',route:'Route Airport Weather',forecast:'Extended Forecast',winds:'Winds Aloft',models:'Forecast Models',alerts:'Local NWS Weather Alerts'})[type]||'Details',content,source)}
-$$('[data-modal]').forEach(b=>b.addEventListener('click',()=>modalSection(b.dataset.modal)));
-
-let lastWindReport=null;
-function windRowsToElement(report){
- const root=document.createElement('div');root.className='wind-detail';
- const metadata=document.createElement('p');metadata.className='source-note';metadata.textContent=`${report.modelGuidance?'GFS MODEL GUIDANCE (not an official FB table)':'Official FB table'} · Station ${report.station} · ${report.fcst}h · ${report.header?.join(' · ')||'Validity unavailable'}`;root.append(metadata);
- for(const entry of report.rows||[]){
-   const line=document.createElement('div');line.className='wind-row';
-   const alt=document.createElement('span');alt.textContent=entry.altitude.toLocaleString('en-US')+' ft';
-   const barb=document.createElement('span');barb.className='wind-arrow';barb.textContent=entry.calm?'○':'➤';barb.style.transform=entry.calm?'none':`rotate(${(entry.direction+90)%360}deg)`;
-   const val=document.createElement('span');val.textContent=entry.calm?'Calm':`${String(entry.direction).padStart(3,'0')}° / ${entry.speed} kt`;
-   const temp=document.createElement('small');temp.textContent=entry.tempC===null?'':`${entry.tempC}°C`;
-   line.append(alt,barb,val,temp);root.append(line);
- }
- return root;
-}
-let windLoadRequest=0;
-async function loadWinds(){
- const request=++windLoadRequest;
- const fcst=$('#wind-cycle').value;
- const station=$('#wind-station').value.trim().toUpperCase().replace(/^K(?=[A-Z]{3}$)/,'');
- $('#wind-station').value=station;
- const host=$('#winds-rows');
- if(!/^[A-Z]{3}$/.test(station)){
-   lastWindReport=null;
-   text('#winds-status','Enter a 3-letter winds forecast station, such as OMA, OFK or DSM.');
-   host.replaceChildren();host.textContent='Select a published winds station.';return;
- }
- text('#winds-status',station+' · '+fcst+'h · Loading winds…');
- try{
-   const report=await fetchJSON('/api/winds-aloft?fcst='+encodeURIComponent(fcst)+'&station='+encodeURIComponent(station));
-   if(request!==windLoadRequest)return;
-   if(!report.available||!Array.isArray(report.rows)||!report.rows.length)
-     throw Error('No wind levels returned for '+station+'; select another station');
-   lastWindReport=report;
-   host.replaceChildren();
-   const rows=windRowsToElement(report);
-   rows.querySelector('.source-note')?.remove();
-   while(rows.firstChild)host.append(rows.firstChild);
-   const time=report.header?.find(s=>/VALID/i.test(s))||'Forecast valid time unavailable';
-   text('#winds-status',(report.stale?'PREVIOUS FORECAST (UPDATE UNAVAILABLE)':report.modelGuidance?'GFS MODEL GUIDANCE':'OFFICIAL FB WINDS')+' · '+station+' · '+fcst+'h · '+time);
- }catch(err){
-   if(request!==windLoadRequest)return;
-   lastWindReport=null;
-   text('#winds-status','Winds unavailable · '+station+' · '+err.message);
-   host.replaceChildren();
-   const message=document.createElement('div');
-   message.className='wind-unavailable';
-   message.textContent=/429|rate.limit/i.test(err.message)?'Provider temporarily rate limited. Automatic updates will retry; no forecast values invented.':'Forecast unavailable. Select another reporting station or use AWC Winds.';
-   host.append(message);
- }
-}
-// Legacy wind controls remain available internally for compatibility, but the\n// dashboard no longer polls deprecated FB wind tables every three minutes.\n$('#wind-cycle').onchange=loadWinds;$('#wind-station').addEventListener('change',loadWinds);$('#wind-station').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();loadWinds()}});$('#wind-station-go').onclick=loadWinds;$('#wind-station').addEventListener('input',()=>{$('#wind-station').dataset.userSelected='true'});
-$('#quick-plan').onclick=()=>{
- $('#route-from').value=$('#quick-from').value;
- $('#route-to').value=$('#quick-to').value;
- scrollToPanel('route-section');
- $('#route-form').requestSubmit();
-};
-
-// Aviation Weather Center hazard displays. Feed errors are not interpreted as clear skies.
-const hazardState={pirep:[],sigmet:[],convective:[],errors:{},scope:{}};
-const firstValue=(o,keys)=>keys.map(k=>o?.[k]).find(v=>v!==undefined&&v!==null&&v!=='');
-const rawHazard=o=>String(firstValue(o,['rawOb','rawAirSigmet','rawSigmet','rawText','raw','text','rawAirmet'])||'').trim();
-const hazardTag=o=>String(firstValue(o,['hazard','hazardType','sigmetType','type','phenomenon','turbInten','iceInten'])||'').replace(/\[object Object\]/g,'').trim();
-const hazardTime=o=>firstValue(o,['obsTime','validTimeFrom','validTime','issueTime','receiptTime','time','forecastTime']);
-function hazardLabel(o,kind){
- const raw=rawHazard(o),type=hazardTag(o);
- if(kind==='pirep'){
-  const tags=[o.turbInten&&'TURB '+o.turbInten,o.iceInten&&'ICE '+o.iceInten,o.fltLvl&&'FL'+o.fltLvl].filter(Boolean);
-  return tags.join(' · ')||'Pilot weather report';
- }
- return type||(raw.match(/(?:CONVECTIVE SIGMET|SIGMET|AIRMET|G-AIRMET)\s+[A-Z0-9-]+/i)?.[0])||'Aviation advisory';
-}
-function hazardIsConvective(o){
- const type=[o.sigmetType,o.hazard,o.hazardType,o.type,o.phenomenon,rawHazard(o).slice(0,250)].filter(Boolean).join(' ').toUpperCase();
- return /CONVECTIVE|\bCONV\b|THUNDERSTORM|\bTS\b/.test(type);
-}
-function hazardItem(o,kind,full=false){
- const item=document.createElement('div');item.className='hazard-item';
- const title=document.createElement('strong');title.textContent=hazardLabel(o,kind);item.append(title);
- const when=hazardTime(o);const raw=rawHazard(o);
- const region=firstValue(o,['area','regions','region','location','locationRef','icaoId','station','id']);
- const details=document.createElement('span');details.className='hazard-meta';
- const parts=[region&&String(region),when&&dateTime(when),kind==='pirep'&&Number.isFinite(Number(o.lat))&&Number.isFinite(Number(o.lon))?Number(o.lat).toFixed(1)+'°, '+Number(o.lon).toFixed(1)+'°':null].filter(Boolean);
- details.textContent=parts.join(' · ')||'See report details';item.append(details);
- if(full){
-  const body=document.createElement('pre');body.className='hazard-raw';body.textContent=raw||JSON.stringify(o,null,2);item.append(body);
- }else if(raw){const snippet=document.createElement('span');snippet.className='hazard-snippet';snippet.textContent=raw.slice(0,130);item.append(snippet);}
- return item;
-}
-
-const advisoryNames={'FZLVL':'Freezing level','TURB-HI':'High-altitude turbulence','TURB-LO':'Low-altitude turbulence','MT_OBSC':'Mountain obscuration','MTN_OBS':'Mountain obscuration','LLWS':'Low-level wind shear','SFC_WIND':'Strong surface winds','ICE':'Icing','IFR':'IFR conditions','TURB':'Turbulence','CONVECTIVE':'Thunderstorms'};
-function advisoryName(code){
- const key=String(code||'').toUpperCase().replace(/_/g,'-');
- return advisoryNames[key]||String(code||'Advisory').replace(/_/g,' ');
-}
-function advisoryZulu(value){
- if(value==null||value==='')return '';
- const n=Number(value),s=String(value);
- const d=(typeof value==='number'||(s.length===10&&Number.isFinite(n)))?new Date(n*1000):new Date(value);
- return Number.isNaN(d.getTime())?'':String(d.getUTCHours()).padStart(2,'0')+String(d.getUTCMinutes()).padStart(2,'0')+'Z';
-}
-function advisoryArea(o){
- const region=firstValue(o,['area','regions','region','location','locationRef','areaDesc','states']);
- if(typeof region==='string'&&region.trim())return region.trim();
- const pairs=[];
- function walk(v){
-  if(!Array.isArray(v))return;
-  if(v.length>=2&&typeof v[0]==='number'&&typeof v[1]==='number'){
-   if(Number.isFinite(v[0])&&Number.isFinite(v[1]))pairs.push(v);
-   return;
-  }
-  for(const child of v)walk(child);
- }
- walk(o.geometry?.coordinates);
- if(pairs.length){
-  const latitudes=pairs.map(p=>p[1]),longitudes=pairs.map(p=>p[0]);
-  const lat=(Math.min(...latitudes)+Math.max(...latitudes))/2;
-  const lon=(Math.min(...longitudes)+Math.max(...longitudes))/2;
-  if(Math.abs(lat)<=90&&Math.abs(lon)<=180)return 'Map center '+Math.abs(lat).toFixed(0)+(lat>=0?'N':'S')+' '+Math.abs(lon).toFixed(0)+(lon>=0?'E':'W');
- }
- return '';
-}
-function advisoryBrief(o,kind){
- const raw=rawHazard(o).split(/\s+/).join(' ').trim();
- const type=hazardTag(o);
- const name=kind==='convective'?'Thunderstorms':advisoryName(type||hazardLabel(o,kind));
- const level=o.level!=null&&Number.isFinite(Number(o.level))?'Freezing level '+(Number(o.level)*100).toLocaleString('en-US')+' ft MSL':'';
- const from=advisoryZulu(firstValue(o,['validTimeFrom','validTime','issueTime']));
- const to=advisoryZulu(o.validTimeTo);
- const timing=from&&to?from+'–'+to:from||to;
- const area=advisoryArea(o);
- const severity=firstValue(o,['severity','dueTo']);
- const signal=kind==='convective'?'':String(type||'').toUpperCase()==='FZLVL'?level:(typeof severity==='string'?severity:'');
- const summary=[name,signal,area,timing].filter(Boolean).join(' · ');
- return summary||raw.slice(0,110)||'Advisory details unavailable';
-}
-function renderHazard(kind,message){
- const items=hazardState[kind],holder=$('#'+kind+'-items');
- const status=$('#'+kind+'-status');if(!holder||!status)return;
- holder.replaceChildren();
- const scope=kind==='pirep'?hazardState.scope.pireps:hazardState.scope.sigmets;
- status.textContent=message||((kind==='pirep'?'Near home · past 3 hours':'Wide-area bulletins · check coverage')+' · '+items.length+' reports');
- if(!items.length){const empty=document.createElement('span');empty.className='hazard-empty';empty.textContent=message?'Data unavailable or not confirmed':'No reports returned for this feed';holder.append(empty);return;}
- items.slice(0,3).forEach(o=>{
-  const item=hazardItem(o,kind);
-  // The glance line is readable without opening a card; expanded reports
-  // retain the full structured metadata and original report text.
-  const glance=document.createElement('span');
-  glance.className='hazard-glance';
-  const complete=advisoryBrief(o,kind);
-  glance.textContent=complete;
-  glance.title=complete;
-  item.prepend(glance);
-  holder.append(item);
- });
-}
-async function loadHazards(){
- try{
-  const coords=homeCoords();
-  const d=await fetchJSON('/api/aviation-hazards?station='+encodeURIComponent(current.homeId)+'&lat='+encodeURIComponent(coords[0])+'&lon='+encodeURIComponent(coords[1]));
-  if(d.station!==current.homeId)return;
-  hazardState.scope=d.scope||{};
-  const p=d.feeds?.pireps,sg=d.feeds?.sigmets,ga=d.feeds?.gairmets;
-  hazardState.pirep=p?.ok?p.items||[]:[];
-  const pirepStale=Boolean(p?.stale);
-  const sigmets=sg?.ok?sg.items||[]:[];
-  hazardState.convective=sigmets.filter(hazardIsConvective);
-  hazardState.sigmet=[...sigmets.filter(x=>!hazardIsConvective(x)),...(ga?.ok?ga.items||[]:[])];
-  hazardState.errors={pirep:p?.ok?'':p?.error||'PIREP feed unavailable',sigmet:(!sg?.ok?'SIGMET feed unavailable. ':'')+(!ga?.ok?'G-AIRMET feed unavailable.':''),
-    convective:sg?.ok?'':sg?.error||'Convective SIGMET feed unavailable'};
-  for(const kind of ['pirep','sigmet','convective']){
-   const error=hazardState.errors[kind];
-   renderHazard(kind,error?'NOAA feed error: '+error:kind==='pirep'&&pirepStale?'STALE REPORTS — live PIREP feed timed out':null);
-  }
- }catch(err){
-  for(const kind of ['pirep','sigmet','convective']){hazardState[kind]=[];hazardState.errors[kind]=err.message;renderHazard(kind,'Unable to check feed: '+err.message)}
- }
-}
-$$('[data-hazard-expand]').forEach(button=>button.addEventListener('click',()=>{
- const kind=button.dataset.hazardExpand;
- const title={pirep:'Recent pilot reports',sigmet:'SIGMETs and G-AIRMETs (US-wide)',convective:'Convective SIGMETs (US-wide)'}[kind]||'Aviation hazards';
- const box=document.createElement('div');box.className='hazard-modal';
- const notice=document.createElement('p');notice.className='source-note';
- notice.textContent=kind==='pirep'?'Reports within 100 statute miles of the home airport during the past 3 hours.':'National/wide-area bulletins. Display does NOT confirm an advisory affects your airport or route; verify the coverage and validity.';
- box.append(notice);
- if(hazardState.errors[kind]){const err=document.createElement('p');err.textContent=hazardState.errors[kind];box.append(err)}
- const items=hazardState[kind]||[];
- if(!items.length){const empty=document.createElement('p');empty.textContent='No reports available from this feed.';box.append(empty)}
- items.slice(0,40).forEach(o=>box.append(hazardItem(o,kind,true)));
- showModal(title,box,'https://aviationweather.gov/gfa/');
-}));
-
-let refreshBusy=false;async function refresh(){if(refreshBusy)return;refreshBusy=true;text('#checked','Refreshing sources…');status('');try{await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadRadar(),loadLocationForecast(),loadNotams(),loadHazards(),...(current.route.length?[loadRouteWinds()]:[])]);text('#checked','Updated '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZoneName:'short'}))}finally{refreshBusy=false}}
-$('#refresh').onclick=refresh;
-// Independent live UTC/Zulu clock, 24-hour format with seconds. No network request required.
-function updateZuluClock(){
-  const now=new Date();
-  const zulu=[now.getUTCHours(),now.getUTCMinutes(),now.getUTCSeconds()]
-    .map(value=>String(value).padStart(2,'0')).join(':')+'Z';
-  const time=$('#utc');
-  if(time){time.textContent=zulu;time.dateTime=now.toISOString();}
-}
-updateZuluClock();
-setInterval(updateZuluClock,1000);
-
-// User-selectable home airport and map style. Keep state local to the browser.
-$('#map-style').value=['sectional','street','satellite'].includes(current.mapStyle)?current.mapStyle:'sectional';
-$('#map-style').addEventListener('change',e=>{current.mapStyle=e.target.value;writePref('wc-map-style-v13',current.mapStyle);changeBaseLayers()});
-$('#home-airport').value=current.homeId;
-function refreshHomeLabels(){
- $('#home-airport').value=current.homeId;
- text('#home-airport-status',current.homeId+' · selected home airport');
- text('#route-current-from',current.homeId);
- const title=$('#airport-section .panelhead h2');if(title)title.textContent='✈ '+current.homeId+' AVIATION';
- $('#quick-from').value=current.homeId;$('#route-from').value=current.homeId;
- const forecast=$('#forecast-select');if(forecast){forecast.replaceChildren();const option=document.createElement('option');option.value=current.homeId;option.textContent=current.homeId+' · home';forecast.append(option)}
- text('#notam-panel-airport',current.homeId);text('#notam-home-id',current.homeId);text('#notam-summary','NOTAM feed pending');updateHomeNotamPriority('loading');
- const label=$('#wind')?.closest('.stat')?.querySelector('.stathead span');if(label)label.textContent='WINDS AT '+current.homeId;
- const windStations=$('#wind-station');if(windStations){const short=/^K[A-Z]{3}$/.test(current.homeId)?current.homeId.slice(1):null;if(!windStations.dataset.userSelected&&short)windStations.value=short;else if(!short)text('#winds-status',`${current.homeId} is not automatically a winds-aloft reporting station. Select a published 3-letter FB station (such as OFK or OMA).`)}
-}
-refreshHomeLabels();
-$('#home-airport-form').addEventListener('submit',async e=>{
- e.preventDefault();let id;try{id=normalize($('#home-airport').value)}catch(err){status(err.message);return}
- const btn=$('#home-airport-form button');btn.disabled=true;text('#home-airport-status','Checking airport '+id+'…');
- try{
-  const [airport]=await lookupAirports([id]);if(!airport?.coords)throw Error('No usable coordinates for '+id+'. Choose a supported airport identifier.');
-  current.homeId=id;current.homeCoords=airport.coords;
-  writePref('wc-home-airport-v13',id);writePref('wc-home-coords-v13',JSON.stringify(airport.coords));
-  refreshHomeLabels();updateForecastLocations();
-  for(const map of mapsRegistry){if(map===current.map||map===current.routeWeatherMap)map.setView(homeCoords(),current.mapStyle==='sectional'?8:7)}
-  // Remove previous home pin to avoid multiple home airports on the map.
-  if(current.homeMarker)current.map.removeLayer(current.homeMarker);
-  current.homeMarker=L.marker(homeCoords()).addTo(current.map).bindPopup(current.homeId+' · Home airport');
-  if(!current.route.length)drawSmallRouteMap();
-  await Promise.allSettled([loadAviation(),loadForecastSummary(),loadAlerts(),loadLocationForecast(),loadNotams(),loadHazards()]);status('Home airport saved: '+id);
- }catch(err){text('#home-airport-status','Unable to select: '+err.message);status(err.message)}finally{btn.disabled=false}
-});
-
-const autoRefresh=$('#auto-refresh');autoRefresh.checked=readPref('wc-auto-refresh-v25','on')==='on';
-autoRefresh.onchange=()=>{writePref('wc-auto-refresh-v25',autoRefresh.checked?'on':'off');if(autoRefresh.checked)refresh()};
-// Use the same TV-safe layout in native fullscreen and in the browser fallback.
-function updateWallMode(){
- const active=Boolean(document.fullscreenElement)||document.body.classList.contains('wall-maximized');
- document.body.classList.toggle('wall-active',active);
- text('#wall-mode',active?'⛶ Exit Wall':'⛶ Wall');
- requestAnimationFrame(()=>{repairMobileMap();fitDashboard()});
-}
-$('#wall-mode').onclick=async()=>{
- if(document.fullscreenElement){
-  try{await document.exitFullscreen()}catch(err){status('Unable to exit fullscreen: '+err.message)}
- }else if(document.body.classList.contains('wall-maximized')){
-  document.body.classList.remove('wall-maximized');
-  status('');
- }else{
-  try{
-   await document.documentElement.requestFullscreen();
-  }catch{
-   document.body.classList.add('wall-maximized');
-   status('Browser fullscreen is restricted; using maximized dashboard display instead.');
-  }
- }
- updateWallMode();
-};
-document.addEventListener('fullscreenchange',updateWallMode);
-let fitActive=false;
-function clearFitCanvas(){
- const main=$('main');
- document.body.classList.remove('fit-proportional');
- if(!main)return;
- for(const prop of ['width','height','max-width','max-height','transform','transform-origin',
-                    'position','left','top','margin','padding','box-sizing'])main.style.removeProperty(prop);
- delete main.dataset.fitScale;
-}
-function fitDashboard(){
- if(!fitActive)return;
- const main=$('main');
- if(!main)return;
- // In landscape Fit Screen, lay out ONE generous virtual dashboard and
- // proportionally scale the entire view. TV browser CSS viewports and zoom
- // levels can be far smaller than the panel layout expects. Resizing each
- // individual card clipped the bottom row of notices and weather maps.
- const vw=document.documentElement.clientWidth||window.innerWidth;
- const vh=window.innerHeight||document.documentElement.clientHeight;
- const landscape=vw>vh*1.18 && vw>=650;
- if(!landscape){
-  clearFitCanvas();
-  for(const map of [current.map,current.routeWeatherMap,current.modalMap].filter(Boolean)){
-   setTimeout(()=>{try{map.invalidateSize({pan:false})}catch{}},130);
-  }
-  return;
- }
- document.body.classList.add('fit-proportional');
- // Fit Screen uses the full browser viewport, edge to edge.
- // The optional TV overscan protection applies only to standalone Wall Mode,
- // never to the Fit Screen button (including when both modes are active).
- const availableWidth=vw,availableHeight=vh;
- // Responsively choose a reference canvas from the *actual* screen size.
- // A fixed 1040px virtual height was causing a huge letterbox on 900px TVs.
- // Allow the grid to use its real width and height on modern 16:9 displays.
- // Only scale down when the device cannot fit the minimum legible layout.
- const minWidth=vw>=1200?1200:Math.max(1050,Math.round(vh*1.35));
- const minHeight=vw>=1100?700:690;
- const baseWidth=Math.max(minWidth,availableWidth);
- const baseHeight=Math.max(minHeight,availableHeight);
- const scale=Math.min(1,availableWidth/baseWidth,availableHeight/baseHeight);
- // Expand the reference canvas to occupy all available pixels in either
- // direction; CSS grid receives full usable width/height, not a letterbox.
- const designW=availableWidth/scale;
- const designH=availableHeight/scale;
- const left=(vw-designW*scale)/2,top=(vh-designH*scale)/2;
- const set=(name,value)=>main.style.setProperty(name,value,'important');
- set('position','fixed');set('width',designW+'px');set('height',designH+'px');
- set('max-width','none');set('max-height','none');set('box-sizing','border-box');
- set('margin','0');set('left',left+'px');set('top',top+'px');
- set('transform-origin','top left');set('transform','scale('+scale+')');
- main.dataset.fitScale=scale.toFixed(3);
- // Leaflet overlays require fresh dimensions after the initial grid resize.
- for(const map of [current.map,current.routeWeatherMap,current.modalMap].filter(Boolean)){
-  setTimeout(()=>{try{map.invalidateSize({pan:false})}catch{}},160);
- }
-}
-function toggleFit(){
- fitActive=!fitActive;
- document.body.classList.toggle('dashboard-fit',fitActive);
- text('#fit-screen',fitActive?'⤢ Exit Fit':'⤢ Fit Screen');
- if(!fitActive){
-  document.body.classList.remove('route-edit-open');
-  clearFitCanvas();repairMobileMap();return;
- }
- fitDashboard();
-}
-$('#fit-screen').onclick=toggleFit;
-window.addEventListener('resize',()=>{if(fitActive)requestAnimationFrame(fitDashboard)});
-window.addEventListener('orientationchange',()=>{if(fitActive)requestAnimationFrame(fitDashboard)});
-if(window.visualViewport)window.visualViewport.addEventListener('resize',()=>{if(fitActive)requestAnimationFrame(fitDashboard)});
-
-function repairMobileMap(){if(!current.map)return;const visible=$('#main-map')?.getBoundingClientRect();if(visible&&visible.width>20&&visible.height>20){current.map.invalidateSize({pan:false});if(!current.mapLayer&&['radar','route'].includes($('.tab.active')?.dataset.map))current.mapLayer=addRadarLayer(current.map)}}
-// Leaflet must be told when grid/flex changes map dimensions without window resize.
-if(typeof ResizeObserver!=='undefined'){
- const mapArea=$('#charts-section .map-area');
- if(mapArea){
-  const sizeObserver=new ResizeObserver(()=>{if(current.map&&mapArea.getBoundingClientRect().width>30)requestAnimationFrame(()=>current.map?.invalidateSize({pan:false}))});
-  sizeObserver.observe(mapArea);
- }
-}
-window.addEventListener('resize',()=>setTimeout(repairMobileMap,120));
-window.addEventListener('orientationchange',()=>setTimeout(repairMobileMap,500));
-document.addEventListener('visibilitychange',()=>{if(!document.hidden){setTimeout(repairMobileMap,120);if(autoRefresh.checked)refresh()}});
-try{current.map=makeMap('main-map');initRouteWeatherMap();current.homeMarker=L.marker(homeCoords()).addTo(current.map).bindPopup(current.homeId+' · Home airport');changeBaseLayers();refresh();setTimeout(repairMobileMap,800)}catch(err){status('Map library unavailable: '+err.message);refresh()}
-setInterval(()=>{if(autoRefresh.checked&&!document.hidden)refresh()},180000);
-
-
-// Make chart thumbnails resilient to source outages. The text fallback stays clickable.
-function attachChartFallbacks(){
-  document.querySelectorAll('.thumb[data-open-chart]').forEach(button=>{
-    const key=button.dataset.openChart, img=button.querySelector('img');
-    if(!img || !charts[key])return;
-    img.src=charts[key].image+'?v='+Math.floor(Date.now()/600000);
-    img.onerror=()=>{
-      img.style.display='none';
-      if(button.querySelector('.chart-fallback'))return;
-      const fallback=document.createElement('div');fallback.className='chart-fallback';
-      const icon=document.createElement('div');icon.className='chart-fallback-icon';icon.textContent=key==='surface'?'≋':'⚡';
-      const title=document.createElement('strong');title.textContent=key==='surface'?'WPC SURFACE ANALYSIS':'SPC CONVECTIVE OUTLOOK';
-      const note=document.createElement('small');note.textContent='Live chart temporarily unavailable · Tap for official source';
-      fallback.append(icon,title,note);button.prepend(fallback);
-    };
-  });
-}
-attachChartFallbacks();
-
-// v0.9: Match compact mockup hierarchy without hiding flight-planning capabilities.
-const routeEditor=document.getElementById('route-form');
-const routeToggle=document.getElementById('toggle-route-edit');
-if(routeToggle&&routeEditor){
- routeToggle.addEventListener('click',()=>{
-   const opening=routeEditor.classList.contains('is-collapsed');
-   routeEditor.classList.toggle('is-collapsed',!opening);
-   routeToggle.setAttribute('aria-expanded',String(opening));
-   routeToggle.querySelector('span').textContent=opening?'▴':'▾';
-   // Fit Screen is a glanceable wall display. Editing is a dedicated overlay,
-   // not a clipped form or scrolling content squeezed inside the route card.
-   document.body.classList.toggle('route-edit-open',opening&&fitActive);
- });
- document.addEventListener('keydown',e=>{
-   if(e.key==='Escape'&&document.body.classList.contains('route-edit-open')){
-     document.body.classList.remove('route-edit-open');
-     routeEditor.classList.add('is-collapsed');
-     routeToggle.setAttribute('aria-expanded','false');
-     routeToggle.querySelector('span').textContent='▾';
-   }
- });
- routeEditor.addEventListener('submit',()=>{
-   const from=document.getElementById('route-from').value.trim().toUpperCase();
-   const to=document.getElementById('route-to').value.trim().toUpperCase();
-   document.getElementById('route-current-from').textContent=from||'KOMA';
-   document.getElementById('route-current-to').textContent=to||'Enter destination';
- });
- const quick=document.getElementById('quick-plan');
- quick?.addEventListener('click',()=>{
-   document.getElementById('route-current-from').textContent=document.getElementById('quick-from').value.trim().toUpperCase()||'KOMA';
-   document.getElementById('route-current-to').textContent=document.getElementById('quick-to').value.trim().toUpperCase()||'Enter destination';
- });
-}
-
-
-
-// NOAA SPC convective chart day selector (official NOAA categorical outlook map service).
-let activeConvectiveDay='1';
-function setConvectiveDay(day){
- if(!['1','2','3'].includes(day))return;
- activeConvectiveDay=day;
- charts.convective.name='SPC Day '+day+' Convective Outlook';
- charts.convective.image='/api/chart/convective?day='+day;
- document.querySelectorAll('[data-day]').forEach(btn=>btn.classList.toggle('active',btn.dataset.day===day));
- text('#convective-caption','Click to enlarge Day '+day+' SPC outlook');
- const image=$('#convective-chart-img');
- if(image){image.style.display='block';image.src=charts.convective.image+'&v='+Math.floor(Date.now()/600000);
-  image.onerror=()=>{image.style.display='none';text('#convective-chart-message','NOAA image unavailable from this connection. Open the official SPC outlook link below.');};
-  image.onload=()=>text('#convective-chart-message','Official NOAA SPC Day '+day+' categorical outlook. Check issued/valid times.');
- }
- if(document.querySelector('[data-map="convective"]')?.classList.contains('active'))mapMode('convective');
-}
-document.querySelectorAll('[data-day]').forEach(btn=>btn.addEventListener('click',()=>setConvectiveDay(btn.dataset.day)));
-setConvectiveDay('1');
-// Airport NOTAM feed. No sample or made-up NOTAMs are displayed.
-let notamPage=1,notamNotices=[],notamTotal=0,notamHasMore=false,notamAirport='',notamLastCheck='';
-const notamSafe=htmlEscape;
-function showNotamStatus(message){text('#notam-feed-status',message)}
-function notamCategory(n){if(n.isTfr)return 'AIRSPACE';return String(n.categoryCode||'OTHER').toUpperCase()}
-function notamFilterMatches(n,filter){
- if(filter==='all')return true;
- const code=notamCategory(n);
- if(filter==='AIRSPACE')return code==='AIRSPACE'||code==='TFR'||n.isTfr;
- if(filter==='OTHER')return !['RUNWAY','RWY_COND','TAXIWAY','AIRSPACE','TFR','NAVAID'].includes(code);
- if(filter==='RUNWAY')return code==='RUNWAY'||code==='RWY_COND';
- return code===filter;
-}
-function updateHomeNotamPriority(state='ready'){
- const button=$('#home-notam-priority'),label=$('#home-notam-priority-text');
- if(!button||!label)return;
- button.classList.remove('notam-alert','notam-error');
- if(state==='loading'){label.textContent='Checking airport notices…';return}
- if(state==='error'){label.textContent='NOTAM feed unavailable';button.classList.add('notam-error');return}
- if(state==='test'){label.textContent='TEST NOTAM data';button.classList.add('notam-error');return}
- const priorities=notamNotices.filter(n=>{
-  const raw=String(n.text||n.reading||'').toUpperCase();
-  return n.isTfr||/\\b(?:RWY|RUNWAY)\\b.{0,65}\\bCLSD\\b/.test(raw)||
-   /\\bCLSD\\b.{0,65}\\b(?:RWY|RUNWAY)\\b/.test(raw)||
-   /\\bAD\\s+CLSD\\b/.test(raw)||
-   /\\bAIRSPACE\\b.{0,70}\\b(?:RESTRICTED|CLOSED)\\b/.test(raw);
- });
- if(priorities.length){
-  button.classList.add('notam-alert');
-  const first=priorities[0];
-  const brief=String(first.reading||first.text||first.category||'Priority notice').replace(/\\s+/g,' ').trim();
-  label.textContent='IMPORTANT NOTAM · '+(first.number?first.number+' · ':'')+brief.slice(0,100)+(priorities.length>1?' · +'+(priorities.length-1)+' more':'');
- }else{
-  label.textContent=(Number.isFinite(Number(notamTotal))?notamTotal:notamNotices.length)+' NOTAMs · View notices';
- }
-}
-$('#home-notam-priority')?.addEventListener('click',()=>$('#notam-expand')?.click());
-function renderNotams(){
- const area=$('#notam-list');area.replaceChildren();const filter=$('#notam-filter').value;
- const filtered=notamNotices.filter(n=>notamFilterMatches(n,filter));
- for(const n of filtered){
-   const item=document.createElement('article');item.className='notam-item';
-   const header=document.createElement('div');header.className='notam-item-top';
-   const number=document.createElement('strong');number.textContent=n.number||'NOTAM';
-   const tag=document.createElement('span');tag.className='notam-tag '+(n.isTfr?'critical':notamCategory(n).toLowerCase());tag.textContent=n.category||'Other';
-   header.append(number,tag);
-   const reading=document.createElement('p');reading.className='notam-reading';reading.textContent=n.reading||n.text||'Text unavailable';
-   const times=document.createElement('small');times.textContent='Effective '+(n.start?dateTime(n.start):'time unknown')+' — '+(n.end?dateTime(n.end):'permanent / end unknown');
-   const details=document.createElement('details');const summary=document.createElement('summary');summary.textContent='Full NOTAM text';
-   const raw=document.createElement('pre');raw.textContent=n.text||'No raw notice text';details.append(summary,raw);
-   item.append(header,reading,times,details);area.append(item);
- }
- if(!filtered.length){const empty=document.createElement('div');empty.className='empty';empty.textContent=notamNotices.length?'No loaded notices match this filter.':'No notices have been returned.';area.append(empty)}
- text('#notam-count-detail',notamNotices.length+' of '+notamTotal+' reported notices loaded');
- $('#notam-more').classList.toggle('hidden',!notamHasMore);
-}
-async function loadNotams(page=1){
- const airport=current.homeId;
- if(page===1){notamPage=1;notamNotices=[];notamHasMore=false;notamTotal=0;notamAirport=airport;}updateHomeNotamPriority('loading');
- showNotamStatus('Loading '+airport+' NOTAMs…');
- $('#notam-more').disabled=true;
- try{
-   const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),30000);let data;try{const response=await fetch('/api/notams?airport='+encodeURIComponent(airport)+'&page='+page,{signal:controller.signal,cache:'no-store'});data=await response.json().catch(()=>({error:'Invalid NOTAM service response'}));if(!response.ok)throw Error(data.error||'NOTAM service returned HTTP '+response.status);}finally{clearTimeout(timer);}
-   if(current.homeId!==airport)return;
-   notamPage=page;notamNotices=notamNotices.concat(data.notams||[]);notamHasMore=!!data.hasMore;notamTotal=data.total;
-   notamLastCheck=data.checkedAt;text('#notam-checked',(data.cached?'Cached · last checked ':'Checked ')+dateTime(data.checkedAt));
-   const testing=data.environment==='test';
-   text('#notam-home-id',testing?'TEST':String(data.total));text('#notam-summary',airport+(testing?' · TEST DATA — NOT FOR FLIGHT USE':' · reported NOTAMs'));
-   showNotamStatus(testing?'TEST DATA — NOT FOR FLIGHT USE':data.total===0?'No NOTAMs returned':'');
-   renderNotams();
-   updateHomeNotamPriority(testing?'test':'ready');
- }catch(err){
-   if(current.homeId!==airport)return;
-   if(page===1){notamNotices=[];notamHasMore=false;notamTotal=0;$('#notam-list').replaceChildren();text('#notam-home-id',airport);text('#notam-summary','NOTAM feed unavailable')}
-   showNotamStatus((err.name==='AbortError'?'FAA NMS request timed out after 30 seconds.':err.message)+' No notices are being represented as current.');
-   updateHomeNotamPriority('error');
-   text('#notam-count-detail','Data unavailable');
- }finally{$('#notam-more').disabled=false}
-}
-$('#notam-refresh').addEventListener('click',()=>loadNotams(1));
-$('#notam-filter').addEventListener('change',renderNotams);
-$('#notam-more').addEventListener('click',()=>{if(notamHasMore)loadNotams(notamPage+1)});
-$('#notam-expand').addEventListener('click',()=>{
- const div=document.createElement('div');div.className='notam-modal-list';
- const source=$('#notam-list');div.textContent='';for(const child of source.children)div.append(child.cloneNode(true));
- showModal(current.homeId+' · Airport NOTAMs',div,'https://notams.aim.faa.gov/notamSearch/');
-});
-
-// Freely positioned, resizable card canvas. Handles use Pointer Events for mouse, touch and pen.
-// Persist per browser; includes all four summary cards and every detailed panel.
-// Layout presets use the original dashboard grid. No cards are moved out of
-// their panels, and no absolute positioning is involved.
-(function setupLayoutPresets(){
- const arrange=$('#layout-toggle'),reset=$('#layout-reset');
- if(!arrange||!reset)return;
- const key='wc-layout-preset-v1';
- const presets={
-  balanced:{title:'Balanced',note:'Readable map, airport data and advisories side by side'},
-  reports:{title:'More weather reports',note:'Wider aviation and advisory columns'},
-  map:{title:'Map priority',note:'A somewhat larger radar map without hiding reports'}
- };
- function activate(name){
-  const choice=presets[name]?name:'balanced';
-  document.body.classList.remove('layout-preset-balanced','layout-preset-reports','layout-preset-map',
-    'free-layout-active','free-layout-editing');
-  document.body.classList.add('layout-preset-'+choice);
-  $('#custom-board')?.classList.add('hidden');
-  arrange.textContent='Arrange Panels';
-  arrange.setAttribute('aria-pressed','false');
-  text('#layout-state',presets[choice].title+' layout');
-  try{localStorage.setItem(key,choice);localStorage.removeItem('weather-command-free-layout-v17');
-    localStorage.removeItem('weather-command-tile-layout-v18')}catch{}
-  requestAnimationFrame(()=>setTimeout(()=>{for(const map of mapsRegistry){
-    try{map.invalidateSize({pan:false})}catch{}
-  }},100));
-  if(fitActive)fitDashboard();
- }
- arrange.addEventListener('click',()=>{
-  const host=document.createElement('div');host.className='layout-choice-grid';
-  const explanation=document.createElement('p');
-  explanation.textContent='Choose a layout. All cards stay aligned, readable and free of overlaps.';
-  host.append(explanation);
-  for(const [name,info] of Object.entries(presets)){
-   const button=document.createElement('button');button.type='button';button.className='layout-choice';
-   const title=document.createElement('strong');title.textContent=info.title;
-   const description=document.createElement('span');description.textContent=info.note;
-   button.append(title,description);
-   button.onclick=()=>{activate(name);closeModal()};
-   host.append(button);
-  }
-  showModal('Dashboard layout',host);
- });
- reset.addEventListener('click',()=>activate('balanced'));
- let saved='balanced';
- try{saved=localStorage.getItem(key)||'balanced'}catch{}
- activate(saved);
-})();
-// Touch-screen detail mode: no scrolling or tiny text on the overview.
-// Tap a card's background or its focus button to bring its existing live
-// controls into the foreground; moving no DOM nodes preserves all handlers.
-(function setupTouchCardFocus(){
- const supported=['airport-section','wind-section','notam-section','charts-section',
-  'route-section','forecast-section','pirep-panel','sigmet-panel','convective-panel'];
- let active=null;
- let originalSlot=null;
- const restore=()=>{
-  if(!active)return;
-  active.classList.remove('focus-panel-active');
-  // Move the detail pane back to its original grid position on close.
-  if(originalSlot?.parentNode)originalSlot.replaceWith(active);
-  originalSlot=null;
-  active=null;
- };
- const close=()=>{
-  if(!active)return;
-  restore();
-  document.body.classList.remove('card-focus-open','route-edit-open');
-  $('#route-form')?.classList.add('is-collapsed');
-  $('#toggle-route-edit')?.setAttribute('aria-expanded','false');
-  const arrow=$('#toggle-route-edit span');if(arrow)arrow.textContent='▾';
-  setTimeout(()=>{repairMobileMap();fitDashboard()},100);
- };
- const open=panel=>{
-  if(!fitActive||!panel)return;
-  if(active===panel)return;
-  if(active)restore();
-  // A transformed dashboard creates a stacking context below its overlay.
-  // Portal expanded panels to body so contrast and close controls remain on top.
-  const slot=document.createComment('Expanded dashboard panel original position');
-  panel.parentNode?.insertBefore(slot,panel);
-  originalSlot=slot;
-  active=panel;
-  document.body.appendChild(panel);
-  document.body.classList.add('card-focus-open');
-  panel.classList.add('focus-panel-active');
-  if(panel.id==='route-section'){
-   const editor=$('#route-form');
-   editor?.classList.remove('is-collapsed');
-   $('#toggle-route-edit')?.setAttribute('aria-expanded','true');
-   const arrow=$('#toggle-route-edit span');if(arrow)arrow.textContent='▴';
-  }
-  setTimeout(()=>{repairMobileMap();fitDashboard()},100);
- };
- for(const id of supported){
-  const panel=document.getElementById(id);
-  if(!panel)continue;
-  const head=panel.querySelector(':scope > .panelhead');
-  // One existing expand button per panel, not a duplicated overlay control.
-  // Keep the panel's original detail action outside Fit Screen; in Fit Screen
-  // intercept the same click to bring the working card into touch focus.
-  const expand=head?.querySelector(':scope > .chevron');
-  if(expand){
-   expand.classList.add('panel-expand-control');
-   expand.title='Expand '+(head.querySelector('h2')?.textContent||'panel');
-   expand.setAttribute('aria-label','Expand '+(head.querySelector('h2')?.textContent||'panel'));
-   expand.addEventListener('click',event=>{
-    if(!fitActive)return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    if(active===panel)close();
-    else open(panel);
-   },true);
-  }
-  panel.addEventListener('click',event=>{
-   if(!fitActive||active===panel||event.target.closest('button,input,select,a,label,textarea,.leaflet-container'))return;
-   open(panel);
-  });
- }
- // The route editor button previously opened a second overlay while the
- // route card was still inside a scaled <main>, leaving it dark and trapped.
- // In Fit Screen, use the SAME accessible focused card and close mechanism.
- const routeEditButton=$('#toggle-route-edit');
- routeEditButton?.addEventListener('click',event=>{
-  if(!fitActive)return;
-  event.preventDefault();
-  event.stopImmediatePropagation();
-  const routePanel=$('#route-section');
-  if(active===routePanel)close();
-  else open(routePanel);
- },true);
- // A button outside the panel closes detail mode without requiring a mouse.
- const exit=document.createElement('button');
- exit.type='button';exit.className='focus-close';exit.textContent='✕ Close';
- exit.setAttribute('aria-label','Close expanded card');
- exit.addEventListener('click',close);
- document.body.append(exit);
- document.addEventListener('keydown',e=>{if(e.key==='Escape'&&active){e.preventDefault();close()}});
- document.addEventListener('pointerdown',e=>{
-  if(active&&e.target.closest('.focus-panel-active,.focus-close')===null)close();
- });
- $('#fit-screen')?.addEventListener('click',()=>{if(active)close()});
-})();
-
-$('#radar-quality')?.addEventListener('change',()=>{if(current.map&&$('.tab.active')?.dataset.map==='radar')transitionRadar(current.map,'mapLayer');});
+init();

@@ -1,789 +1,106 @@
 import http from 'node:http';
-import { createHash, timingSafeEqual } from 'node:crypto';
-import { createRequire } from 'node:module';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {fileURLToPath} from 'node:url';
+import {normalizeTeam,normalizeGames,normalizeAllNFL,normalizeRoster,normalizeInjuries,normalizeLeaders,normalizeStats,normalizeStandings,normalizeNews,calculateMarketProbability,selectFeatured} from './lib/normalize.mjs';
+
 const root=path.dirname(fileURLToPath(import.meta.url));
-const require=createRequire(import.meta.url);
-const {resolveAircraftIdentifier}=require('./aircraft-identifiers.cjs');
-const port=Number(process.env.PORT||3000);
+try{if(typeof process.loadEnvFile==='function')process.loadEnvFile(path.join(root,'.env'))}catch{}
+const PORT=Number(process.env.PORT||3000);
+const ESPN='https://site.api.espn.com/apis/site/v2/sports/football/nfl';
+const CORE='https://sports.core.api.espn.com/v2/sports/football/leagues/nfl';
+const serviceStart=new Date().toISOString();
 const cache=new Map();
-async function upstream(url,ttl=60000){
-  const existing=cache.get(url); if(existing && Date.now()-existing.at<ttl)return existing.value;
-  const res=await fetch(url,{headers:{'User-Agent':'WeatherCommandDashboard/0.1 (personal weather monitor)','Accept':'application/geo+json, application/json, text/plain'},signal:AbortSignal.timeout(14000)});
-  if(res.status===204)return null;
-  if(!res.ok)throw Error(`Upstream service returned ${res.status}`);
-  const value=await res.json();cache.set(url,{value,at:Date.now()});return value;
+const nowISO=()=>new Date().toISOString();
+const seasonNow=()=>{const d=new Date();return d.getUTCMonth()<=3?d.getUTCFullYear()-1:d.getUTCFullYear()};
+const daysId=()=>{const d=new Date();const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d).map(p=>[p.type,p.value]));return `${parts.year}${parts.month}${parts.day}`};
+const allowedHosts=new Set(['site.api.espn.com','sports.core.api.espn.com','api.the-odds-api.com']);
+const errors={};
+async function fetchJSON(url,ttl){
+ const parsed=new URL(url);
+ if(parsed.protocol!=='https:'||!allowedHosts.has(parsed.hostname))throw Error('Upstream URL not allowed');
+ const cached=cache.get(url),now=Date.now();
+ if(cached&&now-cached.fetched<ttl)return {...cached,fromCache:true,stale:false};
+ try{
+  const resp=await fetch(url,{headers:{'Accept':'application/json','User-Agent':'BillsCommandDashboard/1.0 (personal NFL dashboard)'},signal:AbortSignal.timeout(12000)});
+  if(!resp.ok)throw Error(`Provider returned HTTP ${resp.status}`);
+  const size=Number(resp.headers.get('content-length')||'0');if(size>12000000)throw Error('Provider response too large');
+  const body=await resp.text();if(body.length>12000000)throw Error('Provider response too large');
+  const data=JSON.parse(body);
+  const fresh={data,fetched:now,updatedAt:nowISO(),stale:false,fromCache:false};cache.set(url,fresh);return fresh;
+ }catch(err){if(cached&&now-cached.fetched<86400000)return {...cached,stale:true,error:err.message};throw err}
 }
-const aircraftLookups=new Map();
-const aircraftFeeds=[
-  {name:'adsb.lol',url:'https://api.adsb.lol/v2/reg/',callsignUrl:'https://api.adsb.lol/v2/callsign/',retryAt:0},
-  {name:'adsb.fi',url:'https://opendata.adsb.fi/api/v2/registration/',callsignUrl:'https://opendata.adsb.fi/api/v2/callsign/',retryAt:0}
-];
-let aircraftDay=-1,aircraftRequests=0;
-// Use a single resolver for the web app and server; keep registrations
-// separate from airlines' ADS-B flight callsigns.
-const isAircraftCallsign=id=>resolveAircraftIdentifier(id).kind==='callsign';
-async function readAircraftFeed(feed,registration){
-  const now=Date.now();
-  if(now<feed.retryAt)return {status:429,retryAt:feed.retryAt};
-  if(feed.name==='adsb.fi')feed.retryAt=now+1050;
-  const response=await fetch((isAircraftCallsign(registration)?feed.callsignUrl:feed.url)+encodeURIComponent(registration),{
-    headers:{'Accept':'application/json','User-Agent':'WeatherCommandDashboard (aircraft map)'},
-    signal:AbortSignal.timeout(5500)
-  });
-  if(response.status===429){
-    const header=response.headers.get('retry-after');
-    const seconds=Number(header);
-    feed.retryAt=Math.max(feed.retryAt,Date.now()+60000,
-      header&&Number.isFinite(seconds)?Date.now()+seconds*1000:Date.parse(header)||0);
-    return {status:429,retryAt:feed.retryAt};
-  }
-  if(!response.ok)return {status:502};
-  const data=await response.json();
-  if(!Array.isArray(data.ac))return {status:502};
-  const hasPosition=a=>Number.isFinite(a?.lat)&&Math.abs(a.lat)<=90&&
-    Number.isFinite(a.lon)&&Math.abs(a.lon)<=180&&Number.isFinite(a.seen_pos)&&a.seen_pos>=0;
-  const reports=data.ac.filter(a=>isAircraftCallsign(registration)?
-    typeof a?.flight==='string'&&a.flight.trim().toUpperCase()===registration:
-    typeof a?.r==='string'&&a.r.trim().toUpperCase()===registration)
-    .flatMap(plane=>hasPosition(plane)?[{fix:plane,plane}]:
-      hasPosition(plane.lastPosition)?[{fix:plane.lastPosition,plane:null}]:[])
-    .sort((a,b)=>a.fix.seen_pos-b.fix.seen_pos);
-  const report=reports[0];
-  if(!report)return {status:200,position:null,source:feed.name};
-  const {fix,plane}=report;
-  const observedAt=Math.min(Date.now(),Number.isFinite(data.now)&&data.now>0?data.now:Date.now())-fix.seen_pos*1000;
-  return {status:200,source:feed.name,position:{lat:fix.lat,lon:fix.lon,observedAt,
-    altitude:plane?.alt_baro==='ground'?'ground':Number.isFinite(plane?.alt_baro)?plane.alt_baro:null,
-    groundspeed:Number.isFinite(plane?.gs)?plane.gs:null,
-    tail:typeof plane?.r==='string'?plane.r.trim().toUpperCase():null,
-    callsign:typeof plane?.flight==='string'?plane.flight.trim().toUpperCase():null}};
+async function getFeed(name,url,ttl){try{const r=await fetchJSON(url,ttl);return {name,ok:true,data:r.data,updatedAt:r.updatedAt,stale:r.stale,error:r.error||null}}catch(err){errors[name]=err.message;return {name,ok:false,data:null,updatedAt:null,stale:false,error:err.message}}}
+async function getOdds(){
+ const key=process.env.ODDS_API_KEY;
+ if(!key)return {ok:false,enabled:false,error:'Set ODDS_API_KEY to receive live futures-market probabilities.',data:null};
+ const url=`https://api.the-odds-api.com/v4/sports/americanfootball_nfl_super_bowl_winner/odds?apiKey=${encodeURIComponent(key)}&regions=us&markets=outrights&oddsFormat=american`;
+ // Preserve credits: at most one attempt per 2 hours, including failures, per server instance.
+ const prior=cache.get('odds');if(prior&&Date.now()-prior.fetched<7200000)return prior.payload;
+ try{const resp=await fetch(url,{headers:{Accept:'application/json'},signal:AbortSignal.timeout(13000)});
+  if(!resp.ok)throw Error(`Odds provider HTTP ${resp.status}; check your account or rate limit`);
+  const body=await resp.json();const p=calculateMarketProbability(body);
+  const payload={ok:!!p,enabled:true,data:p,error:p?null:'No Buffalo Bills Super Bowl futures available in provider response.'};
+  cache.set('odds',{fetched:Date.now(),payload});return payload;
+ }catch(err){const payload={ok:false,enabled:true,error:err.message,data:null};cache.set('odds',{fetched:Date.now(),payload});return payload}
 }
-async function aircraftPosition(registration){
-  const now=Date.now();
-  const existing=aircraftLookups.get(registration);
-  if(existing&&now-existing.at<50000)return existing.promise;
-  const day=Math.floor(now/86400000);
-  if(day!==aircraftDay){aircraftDay=day;aircraftRequests=0}
-  if(aircraftRequests>=480)aircraftFeeds[0].retryAt=Math.max(aircraftFeeds[0].retryAt,(day+1)*86400000);
-  if(now>=aircraftFeeds[0].retryAt)aircraftRequests++;
-  const promise=(async()=>{
-    const primary=await readAircraftFeed(aircraftFeeds[0],registration).catch(()=>({status:502}));
-    if((primary.status===200&&primary.position)||process.env.WCD_COMMERCIAL_MODE==='true')return primary;
-    // adsb.fi permits its public feed for personal, noncommercial use.
-    const fallback=await readAircraftFeed(aircraftFeeds[1],registration).catch(()=>({status:502}));
-    return fallback.status===200&&fallback.position?fallback:primary.status===200?primary:fallback.status===502?primary:fallback;
-  })();
-  aircraftLookups.set(registration,{at:now,promise});
-  if(aircraftLookups.size>128)aircraftLookups.delete(aircraftLookups.keys().next().value);
-  return promise;
+function staticFpiSnapshot(){
+ // Only valid for a narrowly dated view; always labelled, never described as live.
+ const asOf='2026-11-20';const days=(Date.now()-Date.parse(asOf+'T00:00:00Z'))/86400000;
+ if(days<0||days>8)return null;
+ return {percent:15.4,asOf,source:'ESPN FPI, as reported Nov 20, 2026',url:'https://www.sportsgrid.com/nfl/article/espn-ranks-all-32-nfl-teams-by-their-chances-of-making-the-2026-playoffs',method:'Published FPI snapshot; NOT live',live:false};
 }
-const filedRouteCache=new Map();
-const recentRouteReservations=[];
-const flightAwareBase='https://aeroapi.flightaware.com/aeroapi';
-const flightAwareKey=process.env.FLIGHTAWARE_API_KEY?.trim();
-const filedRouteAccessCode=process.env.WCD_FILED_ROUTE_ACCESS_CODE?.trim();
-const filedRoutesEnabled=Boolean(flightAwareKey&&filedRouteAccessCode&&process.env.WCD_COMMERCIAL_MODE!=='true');
-const hashSecret=value=>createHash('sha256').update(value).digest();
-
-async function flightAwareGet(resource){
-  const response=await fetch(flightAwareBase+resource,{
-    headers:{'x-apikey':flightAwareKey,'Accept':'application/json'},
-    signal:AbortSignal.timeout(7000)
-  });
-  if(response.status===404)return null;
-  if(!response.ok)throw Error('FlightAware lookup unavailable. Check your AeroAPI key, access, or rate limits.');
-  return response.json();
+const baseFeeds=season=>({
+ team:[`${ESPN}/teams/2`,90000],
+ schedule:[`${ESPN}/teams/2/schedule?season=${season}`,180000],
+ roster:[`${ESPN}/teams/2/roster`,900000],
+ injuries:[`${ESPN}/teams/2/injuries`,180000],
+ leaders:[`${ESPN}/teams/2/leaders?season=${season}`,300000],
+ stats:[`${CORE}/seasons/${season}/types/2/teams/2/statistics`,300000],
+ standings:[`https://site.api.espn.com/apis/v2/sports/football/nfl/standings?season=${season}&type=2`,180000],
+ news:[`${ESPN}/news?team=2&limit=12`,300000]
+});
+function officialGameDayInactives(){
+ if(daysId()!=='20261122')return null;
+ return {date:'2026-11-22',published:'2026-11-22T11:32:00-05:00',source:'Buffalo Bills official game-day inactive report',url:'https://www.buffalobills.com/news/buffalo-bills-inactives-vs-dolphins-week-11',players:[['Skyler Bell','WR'],['Dorian Williams','ILB'],['Christian Benford','CB'],['Mike Danna','OLB'],['Jude Bowry','T/G'],['Dalton Kincaid','TE'],['T.J. Sanders','DL']].map(([name,position])=>({name,position}))};
 }
-async function reserveFiledRouteLookup(){
-  const now=new Date();
-  const monthStart=now.toISOString().slice(0,7)+'-01';
-  const usage=await flightAwareGet('/account/usage?start='+monthStart+'&all_keys=true');
-  if(!Number.isFinite(usage?.total_cost)||usage.total_cost<0)throw Error('Could not verify FlightAware usage. No route request was sent.');
-  // The account meter can lag. Reserve for both billable calls and leave headroom.
-  const since=Date.now()-20*60000;
-  while(recentRouteReservations.length&&recentRouteReservations[0]<since)recentRouteReservations.shift();
-  if(usage.total_cost+(recentRouteReservations.length+1)*0.015>4.50||recentRouteReservations.length>=10)
-    return false;
-  recentRouteReservations.push(Date.now());
-  return true;
+function resultPayload(feeds,odds,live){
+ const data={};const sources={};for(const [k,v] of Object.entries(feeds)){data[k]=v?.data||null;sources[k]={ok:!!v?.ok,updatedAt:v?.updatedAt||null,stale:!!v?.stale,error:v?.error||null,url:k==='stats'?'https://www.espn.com/nfl/team/stats/_/name/buf':`https://www.espn.com/nfl/team/_/name/buf`}}
+ let injured=normalizeInjuries(data.injuries);
+ const roster=normalizeRoster(data.roster);
+ // ESPN roster status is not a game injury designation, never infer one from 'active'.
+ const games=normalizeGames(data.schedule,live.data);
+ const team=normalizeTeam(data.team);
+ const standings=normalizeStandings(data.standings);
+ const divisionRank=standings.findIndex(x=>x.abbr==='BUF');
+ if(!team.record&&divisionRank>=0)team.record=standings[divisionRank].record;
+ if(team.wins==null&&divisionRank>=0){team.wins=standings[divisionRank].wins;team.losses=standings[divisionRank].losses;}
+ const timeline=games.filter(x=>x.status==='post').sort((a,b)=>Date.parse(a.date)-Date.parse(b.date));
+ const next=games.filter(x=>x.status==='pre').slice(0,8);
+ const oddsValue=odds.data||staticFpiSnapshot();
+ return {generatedAt:nowISO(),season:seasonNow(),team,divisionRank:divisionRank<0?null:divisionRank+1,standings,roster,injuries:injured,gamedayInactives:officialGameDayInactives(),leaders:normalizeLeaders(data.leaders),stats:normalizeStats(data.stats),news:normalizeNews(data.news),games,featured:selectFeatured(games),upcoming:next,history:timeline,scoreboard:normalizeAllNFL(live.data),odds:{...odds,value:oddsValue},sources:{...sources,live:{ok:live.ok,updatedAt:live.updatedAt,stale:live.stale,error:live.error}},links:{bills:'https://www.buffalobills.com/',injuries:'https://www.buffalobills.com/team/injury-report/',nfl:'https://www.nfl.com/teams/buffalo-bills/',espn:'https://www.espn.com/nfl/team/_/name/buf',odds:'https://the-odds-api.com/sports/super-bowl-winner-odds.html'}};
 }
-async function readFiledRoute(registration){
-  const cached=filedRouteCache.get(registration);
-  if(cached&&Date.now()-cached.at<5*60000)return cached.promise;
-  const promise=(async()=>{
-    if(!await reserveFiledRouteLookup())return {status:429,error:'FlightAware lookup paused to protect the allowance. Check account usage or try later.'};
-    const now=Date.now();
-    const query=new URLSearchParams({ident_type:'registration',max_pages:'1',
-      start:new Date(now-24*3600000).toISOString(),end:new Date(now+3*3600000).toISOString()});
-    const data=await flightAwareGet('/flights/'+encodeURIComponent(registration)+'?'+query);
-    const flights=(data?.flights||[]).filter(f=>!f?.blocked&&!f?.cancelled&&!f?.actual_on&&!f?.actual_in&&
-      (!f?.registration||f.registration.toUpperCase()===registration)&&f?.fa_flight_id&&f?.route?.trim());
-    const airborne=flights.filter(f=>f.actual_off).sort((a,b)=>Date.parse(b.actual_off)-Date.parse(a.actual_off));
-    const upcoming=flights.filter(f=>!f.actual_off&&Date.parse(f.scheduled_out||f.scheduled_off)>=now)
-      .sort((a,b)=>Date.parse(a.scheduled_out||a.scheduled_off)-Date.parse(b.scheduled_out||b.scheduled_off));
-    const flight=airborne[0]||upcoming[0];
-    if(!flight)return {status:200,route:null};
-    const result=await flightAwareGet('/flights/'+encodeURIComponent(flight.fa_flight_id)+'/route');
-    const fixes=(result?.fixes||[]).map(f=>Number.isFinite(f.latitude)&&Math.abs(f.latitude)<=90&&
-      Number.isFinite(f.longitude)&&Math.abs(f.longitude)<=180?[f.latitude,f.longitude]:null);
-    return {status:200,route:{flight:flight.ident,origin:flight.origin?.code,
-      destination:flight.destination?.code,upcoming:!flight.actual_off,
-      departure:flight.actual_off||flight.scheduled_out||flight.scheduled_off,
-      filed:flight.route,fixes}};
-  })().catch(error=>({status:502,error:error.message}));
-  filedRouteCache.set(registration,{at:Date.now(),promise});
-  if(filedRouteCache.size>128)filedRouteCache.delete(filedRouteCache.keys().next().value);
-  const result=await promise;
-  if(result.status!==200&&filedRouteCache.get(registration)?.promise===promise)filedRouteCache.delete(registration);
-  return result;
+async function bootstrap(){
+ const season=seasonNow();const feeds=baseFeeds(season);
+ const all=await Promise.all([...Object.entries(feeds).map(async ([k,[u,ttl]])=>[k,await getFeed(k,u,ttl)]),getFeed('live',`${ESPN}/scoreboard?dates=${daysId()}`,25000).then(x=>['live',x]),getOdds().then(x=>['odds',x])]);
+ const map=Object.fromEntries(all);return resultPayload(Object.fromEntries(Object.entries(feeds).map(([k])=>[k,map[k]])),map.odds,map.live);
 }
-// AWC publishes legacy FB winds/temperatures as fixed-width/text station rows.
-// This endpoint is distinct from the JSON METAR/TAF endpoints.
-const windTableCache=new Map();
-const windTablePending=new Map();
-const windTableRetryAfter=new Map();
-function validWindTable(text){
-  // Check actual forecast rows, not just a single rigid header spelling.
-  return /\bFT\s+3000\s+6000\s+9000\b/i.test(text) &&
-    /\bDATA BASED ON\s+\d{6}Z/i.test(text) &&
-    /^\s*[A-Z]{3}\s+\d{4}/m.test(text);
+async function live(){const r=await getFeed('live',`${ESPN}/scoreboard?dates=${daysId()}`,25000);return {generatedAt:nowISO(),ok:r.ok,updatedAt:r.updatedAt,stale:r.stale,error:r.error,scoreboard:normalizeAllNFL(r.data),events:r.data?.events||[]};}
+const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.ico':'image/x-icon'};
+function send(res,status,body,contentType='application/json; charset=utf-8'){
+ res.writeHead(status,{'Content-Type':contentType,'Cache-Control':'no-store, max-age=0','X-Content-Type-Options':'nosniff','Referrer-Policy':'strict-origin-when-cross-origin','Content-Security-Policy':"default-src 'self'; img-src 'self' https://a.espncdn.com https://cdn.espn.com https://a1.espncdn.com data:; connect-src 'self'; style-src 'self'; script-src 'self'; font-src 'self'; base-uri 'self'; frame-ancestors 'none'"});res.end(body)
 }
-function decodeNwsProductHtml(html){
-  // NWS weather.gov product pages contain a forecast in a preformatted text block.
-  const blocks=[...html.matchAll(/<pre\b[^>]*>([\s\S]*?)<\/pre>/gi)].map(x=>x[1]);
-  const candidates=blocks.length?blocks:[html];
-  for(const value of candidates){
-    const plain=value.replace(/<[^>]*>/g,'').replace(/&nbsp;|&#160;/gi,' ')
-      .replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/&amp;/gi,'&')
-      .replace(/\r/g,'');
-    if(validWindTable(plain))return plain;
-  }
-  return '';
-}
-async function readWindTable(fcst){
-  const existing=windTableCache.get(fcst);
-  if(existing&&Date.now()-existing.at<2*3600000)return existing;
-  // Legacy CONUS FB wind/temp tables were discontinued by NOAA. Don't
-  // repeatedly request retired sources on each 3-minute wall refresh.
-  if(Date.now()<(windTableRetryAfter.get(fcst)||0))throw Error('Legacy CONUS FB wind tables discontinued');
-  if(windTablePending.has(fcst))return windTablePending.get(fcst);
-  const pending=(async()=>{
-    const product={'06':'FD1','12':'FD2','24':'FD3'}[fcst];
-    const sources=[
-      {name:'NOAA Aviation Weather Center / Central US',url:`https://aviationweather.gov/api/data/windtemp?region=chi&level=low&fcst=${fcst}`,html:false},
-      {name:'NWS FD forecast text',url:`https://forecast.weather.gov/product.php?site=NWS&issuedby=US1&product=${product}&format=TXT`,html:true}
-    ];
-    try{
-      const report=await Promise.any(sources.map(async source=>{
-        const response=await fetch(source.url,{headers:{
-          'User-Agent':'WeatherCommandDashboard/3.12 (aviation planning)',
-          'Accept':source.html?'text/html,text/plain':'text/plain'
-        },signal:AbortSignal.timeout(9000)});
-        if(!response.ok)throw Error(source.name+': HTTP '+response.status);
-        const body=await response.text();
-        const value=source.html?decodeNwsProductHtml(body):body;
-        if(!validWindTable(value))throw Error('No published FB table at '+source.name);
-        return {text:value,source:source.name,at:Date.now()};
-      }));
-      windTableCache.set(fcst,report);
-      return report;
-    }catch{
-      windTableRetryAfter.set(fcst,Date.now()+6*3600000);
-      throw Error('Legacy CONUS FB winds not available from NOAA/NWS');
-    }
-  })();
-  windTablePending.set(fcst,pending);
-  try{return await pending}finally{windTablePending.delete(fcst)}
-}
-function decodeFB(code,altitude){
-  if(!/^\d{4}(?:[+-]\d{2}|\d{2})?$/.test(code))return null;
-  const d=Number(code.slice(0,2)),s=Number(code.slice(2,4));
-  if(d===99)return{altitude,direction:null,speed:0,tempC:null,calm:true,raw:code};
-  let direction=d*10,speed=s;
-  if(d>=50){direction=(d-50)*10;speed+=100;}
-  // FB table omits temperatures at 3000 ft, and below 24000 ft may use a sign.
-  let tempC=null;
-  if(code.length>4){const raw=code.slice(4);if(/^[+-]\d{2}$/.test(raw))tempC=Number(raw);else if(/^\d{2}$/.test(raw))tempC=altitude>=24000?-Number(raw):Number(raw);}
-  return {altitude,direction,speed,tempC,calm:false,raw:code};
-}
-function parseWinds(raw,station){
-  const lines=raw.split(/\r?\n/);
-  const head=lines.find(x=>/\bFT\s+3000\b/.test(x));
-  if(!head)throw Error('FB forecast levels missing');
-  const levels=[...head.matchAll(/\b(3000|6000|9000|12000|18000|24000|30000|34000|39000)\b/g)].map(m=>Number(m[1]));
-  const line=lines.find(x=>new RegExp('^\\s*'+station+'\\s+\\d{4}').test(x));
-  if(!line)return {station,levels,rows:[],available:false};
-  // NWS tables may omit 3,000 ft or 6,000 ft forecasts, especially at high terrain.
-  // Use the fixed-width header column positions to retain correct altitude mapping.
-  const first=lines.find(x=>/\bFT\s+3000\s+6000\b/.test(x));
-  const headerSlots=[...first.matchAll(/\b(3000|6000|9000|12000|18000|24000|30000|34000|39000)\b/g)]
-    .map(m=>({altitude:Number(m[1]),position:m.index}));
-  const parts=[...line.matchAll(/\S+/g)].slice(1);
-  let rows=[];
-  for(const part of parts){
-    // Header values start farther right than corresponding row values by a few columns.
-    const position=part.index;
-    let match=headerSlots.reduce((best,slot)=>{
-      const distance=Math.abs(slot.position-position);
-      return !best||distance<best.distance?{slot,distance}:best;
-    },null);
-    if(match && match.distance<=6){
-      const decoded=decodeFB(part[0],match.slot.altitude);
-      if(decoded && !rows.some(x=>x.altitude===decoded.altitude))rows.push(decoded);
-    }
-  }
-  rows.sort((a,b)=>a.altitude-b.altitude);
-  if(!rows.length){ // Fall back only when the fixed-column variant cannot be identified.
-    const cols=line.trim().split(/\s+/).slice(1);
-    rows=cols.map((v,i)=>decodeFB(v,levels[i])).filter(Boolean);
-  }
-  return {station,levels,rows,available:rows.length>0};
-}
-
-
-// Fallback model guidance is distinct from the published FB tables.
-// Use only for locations whose station coordinates are explicitly known.
-const modelWindsStations={OMA:[41.3032,-95.8941],OFK:[41.9855,-97.4351],DSM:[41.534,-93.6631]};
-const modelWindsCache=new Map();
-const modelWindsPending=new Map();
-let modelProviderRetryAfter=0;
-async function readModelWinds(station,fcst){
-  const key=station+'/'+fcst,old=modelWindsCache.get(key);
-  const age=old?Date.now()-old.at:Infinity;
-  if(old&&age<75*60000)return old.value;
-  // When the provider answers HTTP 429, share a single retry window across
-  // ALL airports and all wall displays on this server. Otherwise the automatic
-  // three-minute refresh unintentionally worsens the provider's rate limit.
-  if(Date.now()<modelProviderRetryAfter){
-    if(old&&age<9*3600000)return {...old.value,stale:true,
-      header:['PREVIOUS MODEL FORECAST — PROVIDER TEMPORARILY RATE LIMITED',...old.value.header]};
-    throw Error('GFS forecast provider rate-limited (HTTP 429). Automatic retry after '+new Date(modelProviderRetryAfter).toISOString());
-  }
-  if(modelWindsPending.has(key))return modelWindsPending.get(key);
-  const pending=(async()=>{
-    // Limit request size; pressure-level height is required to interpolate
-    // winds to actual MSL altitudes without inventing an altitude conversion.
-    const levels=[925,900,850,800,700,600,500];
-    const fields=levels.flatMap(p=>['wind_speed_'+p+'hPa','wind_direction_'+p+'hPa','geopotential_height_'+p+'hPa']);
-    const [lat,lon]=modelWindsStations[station];
-    // A paid commercial Open-Meteo subscription uses the customer host and an
-    // API key. Leave the personal prototype unchanged until a key is provided.
-    const openMeteoKey=(process.env.OPEN_METEO_API_KEY||'').trim();
-    const commercialMode=process.env.WCD_COMMERCIAL_MODE==='true';
-    if(commercialMode&&!openMeteoKey)throw Error('Commercial Open-Meteo forecast unavailable: configure OPEN_METEO_API_KEY.');
-    const openMeteoHost=openMeteoKey?'https://customer-api.open-meteo.com':'https://api.open-meteo.com';
-    const url=openMeteoHost+'/v1/gfs?latitude='+lat+'&longitude='+lon+
-      '&hourly='+encodeURIComponent(fields.join(','))+'&wind_speed_unit=kn&timezone=GMT&forecast_days=2'+
-      (openMeteoKey?'&apikey='+encodeURIComponent(openMeteoKey):'');
-    try{
-      const response=await fetch(url,{headers:{'User-Agent':'WeatherCommandDashboard/3.12 (forecast model guidance)'},signal:AbortSignal.timeout(14000)});
-      if(response.status===429){
-        const retry=Number(response.headers.get('retry-after'));
-        modelProviderRetryAfter=Date.now()+(Number.isFinite(retry)&&retry>0?Math.min(retry*1000,6*3600000):45*60000);
-        throw Error('GFS forecast provider HTTP 429 (rate limited)');
-      }
-      if(!response.ok)throw Error('GFS model provider HTTP '+response.status);
-      const hourly=(await response.json()).hourly;
-      if(!hourly?.time?.length)throw Error('No model forecast hours returned');
-      const target=Date.now()+Number(fcst)*3600000;
-      const idx=hourly.time.reduce((best,t,i)=>Math.abs(Date.parse(t+'Z')-target)<Math.abs(Date.parse(hourly.time[best]+'Z')-target)?i:best,0);
-      const points=levels.map(p=>({altitude:Number(hourly['geopotential_height_'+p+'hPa']?.[idx])*3.28084,
-        speed:Number(hourly['wind_speed_'+p+'hPa']?.[idx]),direction:Number(hourly['wind_direction_'+p+'hPa']?.[idx])}))
-        .filter(v=>Number.isFinite(v.altitude)&&Number.isFinite(v.speed)&&Number.isFinite(v.direction))
-        .sort((a,b)=>a.altitude-b.altitude);
-      if(points.length<2)throw Error('Model wind pressure levels unavailable');
-      const rows=[3000,6000,9000,12000,18000]
-        .filter(ft=>ft>=points[0].altitude&&ft<=points.at(-1).altitude).map(altitude=>{
-          const i=points.findIndex(v=>v.altitude>=altitude);
-          if(i<=0)return null;
-          const low=points[i-1],high=points[i],t=(altitude-low.altitude)/(high.altitude-low.altitude);
-          const vector=p=>({e:-p.speed*Math.sin(p.direction*Math.PI/180),
-            n:-p.speed*Math.cos(p.direction*Math.PI/180)});
-          const a=vector(low),b=vector(high);
-          const east=a.e+(b.e-a.e)*t,north=a.n+(b.n-a.n)*t,speed=Math.hypot(east,north);
-          return {altitude,direction:Math.round((Math.atan2(-east,-north)*180/Math.PI+360)%360),
-            speed:Math.round(speed),tempC:null,calm:speed<1,raw:null};
-        }).filter(Boolean);
-      if(!rows.length)throw Error('No model wind data for selectable flight levels');
-      const validAt=hourly.time[idx]+'Z';
-      const value={station,fcst,rows,levels:rows.map(x=>x.altitude),available:true,
-        header:['MODEL VALID '+validAt,'GFS guidance — NOT an official FB forecast'],
-        source:'Open-Meteo GFS model guidance',modelGuidance:true,validAt,
-        retrievedAt:new Date().toISOString()};
-      modelWindsCache.set(key,{at:Date.now(),value});
-      return value;
-    }catch(err){
-      if(old&&age<9*3600000)return {...old.value,stale:true,
-        header:['PREVIOUS MODEL FORECAST — CURRENT UPDATE UNAVAILABLE',...old.value.header]};
-      throw err;
-    }
-  })();
-  modelWindsPending.set(key,pending);
-  try{return await pending}finally{modelWindsPending.delete(key)}
-}
-// Community airport communications/runway data. Cache whole source datasets for a day;
-// never present them as current FAA Chart Supplement or verified FBO/fuel data.
-const airportCsvCache=new Map();
-function parseCsv(data){const rows=[];let row=[],field='',quoted=false;for(let i=0;i<data.length;i++){const c=data[i];if(c==='"'){if(quoted&&data[i+1]==='"'){field+='"';i++}else quoted=!quoted}else if(c===','&&!quoted){row.push(field);field=''}else if((c==='\n'||c==='\r')&&!quoted){if(c==='\r'&&data[i+1]==='\n')i++;row.push(field);if(row.some(Boolean))rows.push(row);row=[];field=''}else field+=c;}if(field||row.length){row.push(field);rows.push(row)}const head=rows.shift()||[];return rows.map(r=>Object.fromEntries(head.map((k,i)=>[k,r[i]||''])))}
-async function communityCsv(name){const c=airportCsvCache.get(name);if(c&&Date.now()-c.at<86400000)return c.rows;const url='https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/'+name+'.csv';const response=await fetch(url,{signal:AbortSignal.timeout(12000),headers:{'User-Agent':'WeatherCommandDashboard/2.5 (airport-info; contact site administrator)'}});if(!response.ok)throw Error('Community airport data HTTP '+response.status);const raw=await response.text();if(raw.length>18000000)throw Error('Airport data file too large');const rows=parseCsv(raw);airportCsvCache.set(name,{at:Date.now(),rows});return rows;}
-
-const apis={
-  points:()=>['https://api.weather.gov/points/41.2565,-95.9345',3600000],
-  alerts:()=>['https://api.weather.gov/alerts/active?area=NE',60000],
-  metar:()=>['https://aviationweather.gov/api/data/metar?ids=KOMA,KCBF,KLNK,KMLE&format=json',300000],
-  taf:()=>['https://aviationweather.gov/api/data/taf?ids=KOMA&format=json',600000],
-  radar:()=>['https://api.rainviewer.com/public/weather-maps.json',600000]
-};
-
-// Render-hosted, allowlisted image relay. Some official chart servers block browser hotlinking.
-// If the official source denies server access too, return 503 so the UI shows an explicit fallback.
-const chartSources={
-  surface:['https://www.wpc.ncep.noaa.gov/sfc/usfntsfc.gif',
-           'https://www.wpc.ncep.noaa.gov/sfc/namussfcwbg.gif'],
-  convective:['https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/SPC_wx_outlks/MapServer/export?bbox=-125,24,-66,50&bboxSR=4326&imageSR=4326&size=1200,560&format=png32&transparent=false&f=image&layers=show:1','https://www.spc.noaa.gov/products/outlook/day1otlk.gif'],
-  'convective-2':['https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/SPC_wx_outlks/MapServer/export?bbox=-125,24,-66,50&bboxSR=4326&imageSR=4326&size=1200,560&format=png32&transparent=false&f=image&layers=show:9','https://www.spc.noaa.gov/products/outlook/day2otlk.gif'],
-  'convective-3':['https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/SPC_wx_outlks/MapServer/export?bbox=-125,24,-66,50&bboxSR=4326&imageSR=4326&size=1200,560&format=png32&transparent=false&f=image&layers=show:17','https://www.spc.noaa.gov/products/outlook/day3otlk.gif']
-};
-const chartCache=new Map();
-async function officialChart(key){
-  const old=chartCache.get(key);
-  if(old && Date.now()-old.at<10*60*1000)return old;
-  for(const url of chartSources[key]){
-    try{
-      const response=await fetch(url,{headers:{'User-Agent':'Mozilla/5.0 WeatherCommandDashboard/0.7.1','Accept':'image/avif,image/webp,image/png,image/gif,image/jpeg,image/*','Referer':new URL(url).origin+'/'},signal:AbortSignal.timeout(10000)});
-      if(!response.ok)continue;
-      const bytes=Buffer.from(await response.arrayBuffer());
-      if(bytes.length<200 || bytes.length>10_000_000)continue;
-      const mime=bytes.subarray(0,6).toString('ascii').startsWith('GIF8')?'image/gif':
-        bytes.subarray(0,4).toString('hex')==='89504e47'?'image/png':
-        bytes.subarray(0,3).toString('hex')==='ffd8ff'?'image/jpeg':null;
-      if(!mime)continue;
-      const item={bytes,mime,at:Date.now()};chartCache.set(key,item);return item;
-    }catch{ /* try next allowlisted official chart endpoint */ }
-  }
-  return null;
-}
-
-// FAA NMS OAuth2 credentials remain server-side. Never send them to browsers.
-const nmsTokenCache=new Map();
-// FAA NMS production onboarding: no more than one API data pull per three minutes.
-// This is a conservative, deployment-wide limiter for this single Render process.
-// Repeated requests for the same airport return a server-side cached result.
-// A different airport during the interval gets an explicit retry response; it NEVER
-// silently receives notices belonging to another airport.
-const NMS_MIN_PULL_INTERVAL_MS=180000;
-const nmsAirportCache=new Map();
-let nmsLastPullStart=0;
-let nmsPullInFlight=null;
-
-function isSecureNmsEndpoint(raw){try{return new URL(raw).protocol==='https:';}catch{return false;}}
-async function nmsAccessToken(auth,id,secret){
-  const key=auth+'|'+id;
-  const cached=nmsTokenCache.get(key);
-  if(cached&&cached.until>Date.now()+30000)return cached.token;
-  const authHeader=Buffer.from(id+':'+secret).toString('base64');
-  const response=await fetch(auth,{method:'POST',headers:{Authorization:'Basic '+authHeader,'Content-Type':'application/x-www-form-urlencoded',Accept:'application/json'},body:'grant_type=client_credentials',signal:AbortSignal.timeout(12000)});
-  if(!response.ok)throw Error(response.status===401||response.status===403?'FAA NMS authentication rejected the client Key/Secret.':`FAA NMS authentication returned HTTP ${response.status}.`);
-  const result=await response.json();
-  const token=result.access_token||result.accessToken;
-  if(typeof token!=='string'||!token)throw Error('FAA NMS authentication returned no access token.');
-  const seconds=Math.max(60,Math.min(86400,Number(result.expires_in)||1800));
-  nmsTokenCache.set(key,{token,until:Date.now()+seconds*1000});return token;
-}
-function extractNmsNotams(payload,airport){
-  // FAA NMS-API OpenAPI schema: {status:"Success",data:{geojson:[Feature,...]}}.
-  // Do not confuse an application error (HTTP 200/status Failure) with an empty result.
-  if(!payload||typeof payload!=='object')throw Error('FAA NMS returned an invalid JSON response.');
-  if(typeof payload.status==='string'&&payload.status.toLowerCase()!=='success'){
-    const errors=Array.isArray(payload.errors)?payload.errors.map(x=>x?.message).filter(Boolean).slice(0,3).join('; '):'';
-    throw Error('FAA NMS reported '+payload.status+(errors?': '+errors:''));
-  }
-  if(payload.data?.url){throw Error('FAA NMS returned a temporary download URL rather than direct airport NOTAM data.');}
-  const input=Array.isArray(payload?.data?.geojson)?payload.data.geojson:
-    Array.isArray(payload?.geojson)?payload.geojson:
-    Array.isArray(payload)?payload:
-    payload?.type==='FeatureCollection'&&Array.isArray(payload.features)?payload.features:
-    Array.isArray(payload?.features)?payload.features:
-    Array.isArray(payload?.notams)?payload.notams:
-    Array.isArray(payload?.results)?payload.results:null;
-  if(input===null)return null;
-  const clean=(v)=>typeof v==='string'?v.trim():typeof v==='number'?String(v):'';
-  const first=(...v)=>v.map(clean).find(Boolean)||'';
-  return input.slice(0,250).map((entry,index)=>{
-    const props=entry?.properties&&typeof entry.properties==='object'?entry.properties:entry;
-    const core=props?.coreNOTAMData||entry?.coreNOTAMData||{};
-    const notam=core?.notam||{};
-    const translation=Array.isArray(core.notamTranslation)?core.notamTranslation:[];
-    const local=translation.find(t=>t?.type==='LOCAL_FORMAT');
-    const icao=translation.find(t=>t?.type==='ICAO');
-    const original=first(local?.simpleText,icao?.formattedText,...translation.map(t=>t?.simpleText||t?.formattedText));
-    const message=first(notam.text,props?.traditionalMessage,props?.traditionalText,props?.notamText,props?.text,props?.message,props?.description);
-    const serial=first(notam.number,props?.notamNumber,props?.number,props?.notamId,entry?.id,notam.id)||('NOTAM '+(index+1));
-    const location=first(notam.icaoLocation,notam.location,props?.icaoLocation,props?.location,props?.locationId,props?.airport)||airport;
-    const category=first(notam.classification,props?.classification,props?.feature,props?.category,props?.type)||'NOTAM';
-    const safeOriginal=original||message||JSON.stringify(props).slice(0,4000);
-    return {number:serial.slice(0,160),category:category.slice(0,100),categoryCode:'OTHER',text:safeOriginal.slice(0,12000),reading:(message||original||'Review original FAA NOTAM details.').slice(0,4000),start:first(notam.effectiveStart,props?.effectiveStartDate,props?.effectiveStart,props?.startDate,props?.validFrom)||null,end:first(notam.effectiveEnd,props?.effectiveEndDate,props?.effectiveEnd,props?.endDate,props?.validTo)||null,isTfr:false,location,status:'unverified',rawProperties:props};
-  });
-}
-
-const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.cjs':'text/javascript; charset=utf-8'};
 const server=http.createServer(async(req,res)=>{
-  try{
-    const u=new URL(req.url,`http://localhost:${port}`);
-    if(u.pathname==='/healthz'){
-      const required=['index.html','app.js','style.css','aircraft-identifiers.cjs'];
-      const checks=await Promise.all(required.map(async file=>({file,available:await fs.access(path.join(root,file)).then(()=>true,()=>false)})));
-      const healthy=checks.every(check=>check.available);
-      res.writeHead(healthy?200:503,{'Content-Type':'application/json','Cache-Control':'no-store'});
-      res.end(JSON.stringify({status:healthy?'ok':'degraded',service:'weather-command-dashboard',checks,checkedAt:new Date().toISOString()}));return;
-    }
-    if(u.pathname==='/api/aircraft'){
-      const identifier=resolveAircraftIdentifier(u.searchParams.get('reg'));
-      const headers={'Content-Type':'application/json','Cache-Control':'no-store'};
-      if(identifier.error){
-        res.writeHead(400,headers);res.end(JSON.stringify({error:identifier.error}));return;
-      }
-      const {status,position,retryAt,source}=await aircraftPosition(identifier.lookup);
-      if(retryAt)headers['Retry-After']=String(Math.max(1,Math.ceil((retryAt-Date.now())/1000)));
-      res.writeHead(status,headers);
-      res.end(JSON.stringify(status===200?{
-        requested:identifier.input,registration:identifier.lookup,
-        kind:identifier.kind,position,source
-      }:{
-        error:status===429?'The free aircraft feed is rate limited.':'Aircraft positions temporarily unavailable.',
-        retryAt
-      }));return;
-    }
-    if(u.pathname==='/api/aircraft/filed-route'){
-      const headers={'Content-Type':'application/json','Cache-Control':'no-store'};
-      const reply=(status,payload)=>{res.writeHead(status,headers);res.end(JSON.stringify(payload))};
-      if(req.method!=='GET'){reply(405,{error:'Method not allowed.'});return}
-      if(!filedRoutesEnabled){reply(503,{error:'Filed routes need a FlightAware key and a personal access code configured on the server.'});return}
-      const authorization=req.headers.authorization||'';
-      if(!authorization.startsWith('Bearer ')||
-         !timingSafeEqual(hashSecret(authorization.slice(7)),hashSecret(filedRouteAccessCode))){
-        reply(401,{error:'Enter your personal filed-route access code.'});return;
-      }
-      const registration=(u.searchParams.get('reg')||'').trim().toUpperCase();
-      if(registration.length<2||registration.length>12||!/^[A-Z0-9]+(?:-[A-Z0-9]+)?$/.test(registration)){
-        reply(400,{error:'Enter a valid aircraft tail number.'});return;
-      }
-      const {status,...payload}=await readFiledRoute(registration);
-      reply(status,payload);return;
-    }
-    if(u.pathname==='/api/provider-status'){
-      // Public-safe operational overview. Never return API keys, tokens, or credentials.
-      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-      res.end(JSON.stringify({
-        commercialMode:process.env.WCD_COMMERCIAL_MODE==='true',
-        commercialReady:false,
-        configured:{openMeteoPaid:Boolean(process.env.OPEN_METEO_API_KEY),
-          faaNms:Boolean(process.env.NMS_API_CLIENT_ID)&&Boolean(process.env.NMS_API_CLIENT_SECRET)},
-        blockers:['RainViewer commercial agreement or replacement',
-          'Commercial map tile and imagery permissions',
-          'FAA sectional map terms review',
-          'Production data load and reliability tests']
-      }));return;
-    }
-    if(u.pathname.startsWith('/api/chart/')){
-      let key=u.pathname.slice('/api/chart/'.length);
-      if(key==='convective'){const day=u.searchParams.get('day')||'1';if(!['1','2','3'].includes(day)){res.writeHead(400);res.end('Invalid forecast day');return;}if(day!=='1')key='convective-'+day;}
-      if(!Object.hasOwn(chartSources,key)){res.writeHead(404);res.end('Unknown chart');return;}
-      const chart=await officialChart(key);
-      if(!chart){res.writeHead(503,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'});res.end('Official chart image unavailable');return;}
-      res.writeHead(200,{'Content-Type':chart.mime,'Cache-Control':'public, max-age=300','X-Content-Type-Options':'nosniff'});res.end(chart.bytes);return;
-    }
-    if(u.pathname==='/api/notams'){
-      const airport=(u.searchParams.get('airport')||'').trim().toUpperCase();
-      if(!/^[A-Z0-9]{3,4}$/.test(airport)){
-        res.writeHead(400,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:'Enter a 3- or 4-character airport identifier.'}));return;
-      }
-      const clientId=process.env.NMS_API_CLIENT_ID;
-      const clientSecret=process.env.NMS_API_CLIENT_SECRET;
-      const env=(process.env.NMS_API_ENV||'test').toLowerCase();
-      if(!['test','production'].includes(env)){
-        res.writeHead(503,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:'NMS_API_ENV must be test or production.'}));return;
-      }
-      if(!clientId||!clientSecret){
-        res.writeHead(503,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({configured:false,error:'FAA NMS access is not configured. Set NMS_API_CLIENT_ID and NMS_API_CLIENT_SECRET in Render.'}));return;
-      }
-      // Production URLs were provided explicitly by FAA NMS onboarding.
-      const base=process.env.NMS_API_BASE_URL||(env==='test'?'https://api-staging.cgifederal-aim.com/nmsapi':'https://api-nms.aim.faa.gov/nmsapi');
-      const auth=process.env.NMS_AUTH_URL||(env==='test'?'https://api-staging.cgifederal-aim.com/v1/auth/token':'https://api-nms.aim.faa.gov/v1/auth/token');
-      const key=env+'|'+airport;
-      const cached=nmsAirportCache.get(key);
-      if(cached&&Date.now()-cached.at<NMS_MIN_PULL_INTERVAL_MS){
-        res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-        res.end(JSON.stringify({...cached.value,cached:true,cacheAgeSeconds:Math.floor((Date.now()-cached.at)/1000),nextRefreshAt:new Date(cached.at+NMS_MIN_PULL_INTERVAL_MS).toISOString()}));return;
-      }
-      // Only one upstream NOTAM data fetch may be underway on this process.
-      // This gate protects FAA rate limits even when several tabs refresh at once.
-      if(nmsPullInFlight||Date.now()-nmsLastPullStart<NMS_MIN_PULL_INTERVAL_MS){
-        const retryMs=Math.max(1000,NMS_MIN_PULL_INTERVAL_MS-(Date.now()-nmsLastPullStart));
-        res.writeHead(429,{'Content-Type':'application/json','Cache-Control':'no-store','Retry-After':String(Math.ceil(retryMs/1000))});
-        res.end(JSON.stringify({configured:true,environment:env,airport,rateLimited:true,retryAfterSeconds:Math.ceil(retryMs/1000),error:'FAA NMS permits one NOTAM data pull every three minutes. Please retry this airport after the indicated interval. Existing cached airport results remain available.'}));return;
-      }
-      // Reserve the entire three-minute slot synchronously before first await.
-      nmsLastPullStart=Date.now();
-      nmsPullInFlight={airport,at:nmsLastPullStart};
-      try{
-        if(!isSecureNmsEndpoint(base)||!isSecureNmsEndpoint(auth))throw Error('Invalid NMS endpoint configuration (HTTPS required).');
-        // Never label staging responses production, including when Render has old URL overrides.
-        if(env==='production'&&(new URL(base).hostname!=='api-nms.aim.faa.gov'||new URL(auth).hostname!=='api-nms.aim.faa.gov'))throw Error('NMS_API_ENV is production but the endpoint URL is not the FAA production host. Remove old staging NMS_API_BASE_URL and NMS_AUTH_URL overrides from Render.');
-        if(env==='test'&&(new URL(base).hostname!=='api-staging.cgifederal-aim.com'||new URL(auth).hostname!=='api-staging.cgifederal-aim.com'))throw Error('NMS_API_ENV is test but an endpoint URL is not the FAA pre-production host.');
-        const accessToken=await nmsAccessToken(auth,clientId,clientSecret);
-        // Preserve the API's base path if supplied as the documented /nmsapi root.
-        const prefix=base.replace(/\/$/,'');
-        const endpoint=new URL(prefix+'/v1/notams');endpoint.searchParams.set('location',airport);
-        const resp=await fetch(endpoint,{headers:{Authorization:'Bearer '+accessToken,nmsResponseFormat:'GEOJSON',Accept:'application/json'},signal:AbortSignal.timeout(12000)});
-        if(!resp.ok){
-          const message=resp.status===401||resp.status===403?'FAA NMS rejected the access token. Confirm the key/secret and environment.':`FAA NMS returned HTTP ${resp.status}.`;
-          res.writeHead(502,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({configured:true,error:message}));return;
-        }
-        const data=await resp.json();
-        const records=extractNmsNotams(data,airport);
-        if(records===null)throw Error('NMS response format remains unrecognized. Please provide the sanitized response shape (field names only) from Render logs; no NOTAMs have been assumed.');
-        res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-        const value={configured:true,airport,notams:records,total:records.length,hasMore:false,page:1,limited:data?.data?.geojson?.length>250,source:env==='test'?'FAA NMS PRE-PRODUCTION (TEST ONLY)':'FAA NMS PRODUCTION',environment:env,checkedAt:new Date().toISOString()};
-        nmsAirportCache.set(key,{value,at:Date.now()});
-        res.end(JSON.stringify({...value,cached:false,nextRefreshAt:new Date(nmsLastPullStart+NMS_MIN_PULL_INTERVAL_MS).toISOString()}));return;
-      }catch(e){
-        const message=e.name==='TimeoutError'?'NMS request timed out.':e.message;
-        res.writeHead(502,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({configured:true,error:message}));return;
-      }finally{
-        nmsPullInFlight=null;
-      }
-    }
-    if(u.pathname==='/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({status:'ok'}));return;}
-    if(u.pathname==='/api/aviation-hazards'){
-      const station=(u.searchParams.get('station')||'KOMA').trim().toUpperCase();
-      const lat=Number(u.searchParams.get('lat')),lon=Number(u.searchParams.get('lon'));
-      if(!/^[A-Z0-9]{3,4}$/.test(station)||!Number.isFinite(lat)||!Number.isFinite(lon)||lat< -90||lat>90||lon< -180||lon>180){
-        res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Valid station and coordinates required'}));return;
-      }
-      // New AWC PIREP API supports bbox instead of the older ids+distance query
-      // combination. A bounding box is a search envelope, NOT a circular radius.
-      const radialDeg=0.75,lonDeg=radialDeg/Math.max(0.25,Math.cos(lat*Math.PI/180));
-      const bbox=[
-        Math.max(-90,lat-radialDeg).toFixed(3),Math.max(-180,lon-lonDeg).toFixed(3),
-        Math.min(90,lat+radialDeg).toFixed(3),Math.min(180,lon+lonDeg).toFixed(3)
-      ].join(',');
-      const urls={
-        pireps:'https://aviationweather.gov/api/data/pirep?bbox='+encodeURIComponent(bbox)+'&age=3&format=json',
-        sigmets:'https://aviationweather.gov/api/data/airsigmet?format=json',
-        gairmets:'https://aviationweather.gov/api/data/gairmet?format=json'
-      };
-      // Query a bounded geographic area around home; never use unsupported distance params.
-      // Keep a bounded successful snapshot for temporary upstream timeouts.
-      const pirepKey='awc-pireps-'+station;
-      const previousPireps=cache.get(pirepKey);
-      async function getFeed(key){
-        const url=urls[key];
-        try{
-          // Reuse the server-side request cache and existing AWC User-Agent.
-          let response;
-          if(key==='pireps'){
-            const controller=AbortSignal.timeout(6500);
-            const answer=await fetch(url,{headers:{'User-Agent':'WeatherCommandDashboard/3.2 (aviation weather dashboard)','Accept':'application/json'},signal:controller});
-            if(answer.status===204)response=null;
-            else {if(!answer.ok)throw Error('NOAA PIREP HTTP '+answer.status);response=await answer.json();}
-          }else{
-            // A slow NOAA advisory endpoint must not force the whole dashboard's
-            // hazard response past the Render gateway timeout.
-            response=await new Promise((resolve,reject)=>{
-              const timer=setTimeout(()=>reject(Error('NOAA advisory request exceeded 7-second budget')),7000);
-              upstream(url,180000).then(
-                value=>{clearTimeout(timer);resolve(value)},
-                error=>{clearTimeout(timer);reject(error)}
-              );
-            });
-          }
-          if(response===null){
-            if(key==='pireps')cache.set(pirepKey,{value:[],at:Date.now()});
-            return {ok:true,items:[],empty:true,source:'AWC',status:204};
-          }
-          const list=Array.isArray(response)?response:
-            (response?.type==='FeatureCollection'&&Array.isArray(response.features)?response.features.map(x=>({...x.properties,geometry:x.geometry})):null);
-          if(!list)throw Error('Unexpected NOAA JSON response shape');
-          if(key==='pireps')cache.set(pirepKey,{value:list.slice(0,100),at:Date.now()});
-          return {ok:true,items:list.slice(0,400),empty:list.length===0,source:'AWC',status:200};
-        }catch(err){
-          if(key==='pireps'&&previousPireps&&Date.now()-previousPireps.at<3600000)
-            return {ok:true,items:previousPireps.value,empty:previousPireps.value.length===0,
-              source:'AWC (previous successful response)',stale:true,
-              error:'Live PIREP request timed out; showing older reports'};
-          return {ok:false,items:[],empty:false,error:String(err?.message||err),source:'AWC'};
-        }
-      }
-      const keys=['pireps','sigmets','gairmets'];
-      const data=await Promise.all(keys.map(key=>getFeed(key)));
-      const feeds=Object.fromEntries(keys.map((key,i)=>[key,data[i]]));
-      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-      res.end(JSON.stringify({
-        station,feeds,checkedAt:new Date().toISOString(),
-        scope:{pireps:'Recent pilot reports in a geographic box centered on '+station+'; last 3 hours (previous reports labeled)',
-        sigmets:'National and worldwide feed — NOT filtered to airport',
-        gairmets:'CONUS G-AIRMET bulletins — NOT filtered to airport'}
-      }));return;
-    }
-    if(u.pathname==='/api/winds-aloft'){
-      const fcst=u.searchParams.get('fcst')||'06';
-      const station=(u.searchParams.get('station')||'OMA').toUpperCase();
-      if(!['06','12','24'].includes(fcst)||!/^[A-Z]{3}$/.test(station)){
-        res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Invalid forecast hour or station'}));return;
-      }
-      let output;
-      try{
-        const report=await readWindTable(fcst);
-        const raw=report.text,parsed=parseWinds(raw,station);
-        if(!parsed.available||!parsed.rows.length)throw Error('Station '+station+' unavailable in legacy FB table');
-        const header=raw.split(/\r?\n/).slice(0,12).filter(x=>/DATA BASED|VALID|FOR USE|TEMPS NEG/i.test(x)).map(x=>x.trim());
-        output={...parsed,fcst,header,source:report.source+' · official FB winds/temperatures',retrievedAt:new Date().toISOString(),modelGuidance:false};
-      }catch(err){
-        if(!modelWindsStations[station])throw Error('Official winds unavailable for '+station+': '+err.message);
-        output=await readModelWinds(station,fcst);
-      }
-      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=300'});
-      res.end(JSON.stringify(output));return;
-    }
-
-    if(u.pathname==='/api/airport-info'){
-      const id=(u.searchParams.get('id')||'').trim().toUpperCase();
-      if(!/^[A-Z0-9]{3,4}$/.test(id)){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Invalid airport identifier'}));return;}
-      const icao=id.length===3&&/^[A-Z]{3}$/.test(id)?'K'+id:id;
-      let airport=null,frequencies=[],runways=[],sourceError='';
-      // AWC airport `elev` is not used as an FAA-confirmed feet value. Keep
-      // elevation units explicit and prefer elevation_ft from the airport dataset.
-      const publishedAirportOverrides={
-        KOMA:{name:'Eppley Airfield',city:'Omaha',state:'Nebraska',
-          fieldElevationFt:984.5,fieldElevationSource:'FAA airport record (surveyed)',
-          airspaceClass:'C',airspaceSource:'FAA From the Flight Deck — OMA',
-          controlTower:'Yes — continuous',controlTowerSource:'FAA From the Flight Deck — OMA'}
-      };
-      const results=await Promise.allSettled([
-        upstream('https://aviationweather.gov/api/data/airport?ids='+encodeURIComponent(icao)+'&format=json',86400000),
-        communityCsv('airports'),communityCsv('airport-frequencies'),communityCsv('runways')
-      ]);
-      if(results[0].status==='fulfilled'&&Array.isArray(results[0].value))airport=results[0].value[0]||null;
-      if(results.slice(1).every(x=>x.status==='fulfilled')){
-        const list=results[1].value;
-        const a=list.find(x=>[x.ident,x.gps_code,x.icao_code,x.local_code].some(code=>code&&[icao,id,icao.slice(1)].includes(code.toUpperCase())));
-        if(a){
-          if(!airport)airport={name:a.name,city:a.municipality,state:a.iso_region,type:a.type};
-          // OurAirports elevation_ft has documented units of feet MSL.
-          const communityElevation=Number(a.elevation_ft);
-          if(a.elevation_ft!==''&&Number.isFinite(communityElevation)&&communityElevation>=-1500&&communityElevation<=15000){
-            airport.fieldElevationFt=communityElevation;
-            airport.fieldElevationSource='OurAirports community dataset (verify with FAA)';
-          }
-          frequencies=results[2].value.filter(f=>f.airport_ref===a.id).map(f=>({type:f.type,mhz:f.frequency_mhz,description:f.description}));
-          runways=results[3].value.filter(r=>r.airport_ref===a.id).map(r=>({le_ident:r.le_ident,he_ident:r.he_ident,length_ft:r.length_ft,width_ft:r.width_ft,surface:r.surface}));
-        }
-      }else sourceError='Community runway/frequency data temporarily unavailable';
-      if(publishedAirportOverrides[icao]){
-        airport={...(airport||{}),...publishedAirportOverrides[icao]};
-      }
-      // Do not infer controlled-airspace class from the existence of a tower,
-      // coordinates, airport size or METAR. Class must be independently sourced.
-      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=3600'});res.end(JSON.stringify({id:icao,airport,frequencies,runways,sourceError,checkedAt:new Date().toISOString()}));return;
-    }
-    if(u.pathname==='/api/airport-route'){
-      const raw=(u.searchParams.get('ids')||'').toUpperCase().split(/[\s,;>-]+/).filter(Boolean);
-      if(!raw.length||raw.length>12||raw.some(id=>!/^[A-Z0-9]{3,4}$/.test(id))){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Enter 1–12 valid 3- or 4-character airport identifiers.'}));return;}
-      const ids=raw.map(id=>id.length===3&&/^[A-Z]{3}$/.test(id)?'K'+id:id);
-      const unique=[...new Set(ids)];
-      // Local FAA identifiers such as 84Y are valid airports, but not ICAO
-      // stations. Do not manufacture K84Y or require on-field METARs/TAFs.
-      const aviationIds=unique.filter(id=>/^K[A-Z]{3}$/.test(id)||/^[A-Z]{4}$/.test(id));
-      const joined=aviationIds.join(',');
-      const base='https://aviationweather.gov/api/data/';
-      // Do not put an entire OurAirports CSV download on the critical path for
-      // normal ICAO airports. It previously stalled routine METAR/TAF loads and
-      // could exceed the Render HTTP gateway's response window.
-      const requiresCommunity=unique.some(id=>!/^[A-Z]{4}$/.test(id)&&id!=='84Y');
-      // Leave enough response headroom for the server and Render proxy when an
-      // AWC upstream is slow. Results that time out are explicitly unavailable,
-      // never replaced with invented METARs, TAFs, or airport positions.
-      const beforeDeadline=(pending,ms=7000)=>new Promise((resolve,reject)=>{
-        const timer=setTimeout(()=>reject(Error('Upstream timed out in dashboard request')),ms);
-        Promise.resolve(pending).then(
-          value=>{clearTimeout(timer);resolve(value)},
-          error=>{clearTimeout(timer);reject(error)}
-        );
-      });
-      const results=await Promise.allSettled([
-        joined?beforeDeadline(upstream(base+'metar?ids='+encodeURIComponent(joined)+'&format=json',180000)):Promise.resolve([]),
-        joined?beforeDeadline(upstream(base+'taf?ids='+encodeURIComponent(joined)+'&format=json',300000)):Promise.resolve([]),
-        joined?beforeDeadline(upstream(base+'airport?ids='+encodeURIComponent(joined)+'&format=json',86400000)):Promise.resolve([]),
-        requiresCommunity?beforeDeadline(communityCsv('airports')):Promise.resolve([])
-      ]);
-      const array=i=>results[i].status==='fulfilled'&&Array.isArray(results[i].value)?results[i].value:[];
-      const metars=array(0),tafs=array(1),airports=array(2);
-      const community=array(3);
-      const matching=(row,id)=>[row.ident,row.gps_code,row.icao_code,row.local_code].some(code=>String(code||'').toUpperCase()===id);
-      for(const id of unique){
-        if(airports.some(row=>[row.icaoId,row.icao,row.ident,row.id].some(code=>String(code||'').toUpperCase()===id)))continue;
-        const row=community.find(row=>matching(row,id));
-        if(row){
-          const lat=Number(row.latitude_deg),lon=Number(row.longitude_deg);
-          if(Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180){
-            airports.push({icaoId:id,ident:id,name:row.name,lat,lon,
-              latitude:lat,longitude:lon,locationSource:'OurAirports open dataset; verify current FAA records',
-              elevation_ft:row.elevation_ft||null});
-          }
-        }
-      }
-      // A published-location fallback for 84Y; only used if the general
-      // open airport database cannot be fetched or lacks the station.
-      if(unique.includes('84Y')&&!airports.some(row=>String(row.icaoId||row.ident).toUpperCase()==='84Y')){
-        airports.push({icaoId:'84Y',ident:'84Y',name:'Bloomfield Municipal Airport',
-          lat:42.5797244,lon:-97.6736753,
-          locationSource:'Published FAA airport coordinates; verify current FAA records'});
-      }
-      if(results.slice(0,3).every(r=>r.status==='rejected')&&!airports.length){
-        res.writeHead(502,{'Content-Type':'application/json'});
-        res.end(JSON.stringify({error:'Airport location data is temporarily unavailable.'}));return;
-      }
-      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=120'});
-      res.end(JSON.stringify({ids,metars,tafs,airports,partial:results.some(r=>r.status==='rejected'),checkedAt:new Date().toISOString()}));return;
-    }
-    if(u.pathname==='/api/home-alerts'){
-      const lat=Number(u.searchParams.get('lat')),lon=Number(u.searchParams.get('lon'));
-      if(!Number.isFinite(lat)||!Number.isFinite(lon)||lat<-90||lat>90||lon<-180||lon>180){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Invalid home airport coordinates'}));return;}
-      const data=await upstream('https://api.weather.gov/alerts/active?point='+lat.toFixed(4)+','+lon.toFixed(4),60000);
-      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=60'});res.end(JSON.stringify(data));return;
-    }
-    if(u.pathname==='/api/location-forecast'){
-      const lat=Number(u.searchParams.get('lat'));const lon=Number(u.searchParams.get('lon'));
-      if(!Number.isFinite(lat)||!Number.isFinite(lon)||lat<24||lat>50||lon< -125||lon> -66){
-        res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Multi-day NWS forecast requires coordinates in the contiguous United States.'}));return;
-      }
-      const points=await upstream(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`,3600000);
-      if(!points?.properties?.forecast)throw Error('NWS forecast unavailable for this location');
-      const forecast=await upstream(points.properties.forecast,300000);
-      const periods=(forecast?.properties?.periods||[]).slice(0,14).map(p=>({name:p.name,startTime:p.startTime,isDaytime:p.isDaytime,temperature:p.temperature,temperatureUnit:p.temperatureUnit,shortForecast:p.shortForecast,windSpeed:p.windSpeed,windDirection:p.windDirection,probabilityOfPrecipitation:p.probabilityOfPrecipitation?.value??null}));
-      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=180'});
-      res.end(JSON.stringify({location:points?.properties?.relativeLocation?.properties||null,periods,updated:new Date().toISOString(),source:'NWS'}));return;
-    }
-    if(u.pathname.startsWith('/api/')){
-      const key=u.pathname.slice(5);if(key!=='forecast'&&!apis[key]){res.writeHead(404);res.end('Not found');return;}
-      let data;
-      if(key==='forecast'){
-        const point=await upstream('https://api.weather.gov/points/41.2565,-95.9345',3600000);
-        if(!point?.properties?.forecast)throw Error('NWS forecast endpoint unavailable');
-        data=await upstream(point.properties.forecast,300000);
-      }else{
-        const [url,ttl]=apis[key]();data=await upstream(url,ttl);
-      }
-      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=60'});res.end(JSON.stringify(data));return;
-    }
-    const file=u.pathname==='/'?'index.html':(['/qds','/product','/landing'].includes(u.pathname)?'qds.html':u.pathname.slice(1));
-    if(!new Set(['index.html','app.js','aircraft-identifiers.cjs','style.css','qds.html','qds.css','qds.js']).has(file)){res.writeHead(404);res.end('Not found');return;}
-    const filename=path.join(root,file);
-    const content=await fs.readFile(filename);
-    res.writeHead(200,{'Content-Type':types[path.extname(filename)]||'application/octet-stream','Cache-Control':'no-store, max-age=0, must-revalidate','Pragma':'no-cache','Expires':'0'});res.end(content);
-  }catch(err){res.writeHead(err.code==='ENOENT'?404:502,{'Content-Type':'application/json'});res.end(JSON.stringify({error:err.message}));}
-});if(process.env.WCD_WIND_TEST==='1'){const sample='DATA BASED ON 061800Z\n VALID 070000Z FOR USE 2000-0300Z\n FT 3000 6000 9000 12000 18000 24000 30000 34000 39000\n OMA 2313 2512+02 2811-02 3116-09 3336-22 3546-33 355949 355659 312855';const result=parseWinds(sample,'OMA');if(result.rows.length!==9||result.rows[1].tempC!==2||result.rows[7].tempC!==-59)throw Error('Wind parser fixture failed');console.log('Wind parser fixture passed');}else server.listen(port,'0.0.0.0',()=>console.log(`Weather Command Dashboard on ${port}`));
+ if(req.method!=='GET'){send(res,405,JSON.stringify({error:'Method not allowed'}));return}
+ try{
+  const u=new URL(req.url,'http://localhost');
+  if(u.pathname==='/api/health'){send(res,200,JSON.stringify({ok:true,project:'Bills Command Dashboard',uptimeSeconds:Math.floor(process.uptime()),startedAt:serviceStart,oddsConfigured:!!process.env.ODDS_API_KEY}));return}
+  if(u.pathname==='/api/dashboard'){send(res,200,JSON.stringify(await bootstrap()));return}
+  if(u.pathname==='/api/live'){send(res,200,JSON.stringify(await live()));return}
+  const files={'/':'index.html','/index.html':'index.html','/app.js':'app.js','/styles.css':'styles.css'};
+  const file=files[u.pathname];if(!file){send(res,404,JSON.stringify({error:'Not found'}));return}
+  const bytes=await fs.readFile(path.join(root,file));send(res,200,bytes,types[path.extname(file)]||'application/octet-stream');
+ }catch(err){console.error('Dashboard request error',err);send(res,502,JSON.stringify({error:'Dashboard data temporarily unavailable',detail:err.message}));}
+});
+if(process.env.NODE_ENV!=='test')server.listen(PORT,'0.0.0.0',()=>console.log(`Buffalo Bills Command Dashboard at http://localhost:${PORT}`));
+export {server,bootstrap,live,staticFpiSnapshot};

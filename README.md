@@ -1,73 +1,95 @@
-# Weather Command Dashboard v2.9 — Route Winds Aloft & Wind-Corrected ETA
+# Bills Command Dashboard
 
-Based on v2.8. Install all six files through GitHub Desktop and push to Render.
+A **new, independent Buffalo Bills dashboard project** inspired by the dense, dark, panel-driven layout of Weather Command Dashboard. It has its **own** source files, `package.json`, and `render.yaml` and does not replace or modify the weather project.
 
-## New flight-planning features
+## Features
 
-- Route planner now asks for **true airspeed (TAS)**, cruise altitude MSL, an official three-letter **FB winds-aloft forecast station** and 6-, 12- or 24-hour forecast period.
-- Uses the existing NOAA Aviation Weather Center / NWS fallback `/api/winds-aloft` data; no new API key is required.
-- Wind speed/direction at cruise altitude are interpolated **as vector components** between published forecast levels, when available.
-- Every direct leg gets a true course, wind-correction angle and wind-adjusted groundspeed; ETA and fuel use the sum of estimated leg durations.
-- Forecast station is manually selectable: choose a forecast station representative of the route (e.g. OMA or OFK), not automatically assumed to be the departure airport. A single station is an approximation, especially on longer routes.
-- If the upstream winds table is missing or the station has no forecast, the estimate is explicitly labeled **STILL-AIR ONLY**; no wind estimate is fabricated. A crosswind too strong to hold a desired track is flagged.
-- The route-wind forecast is refreshed with the dashboard auto-refresh and with a dedicated button; upstream response caching remains in place.
+- Buffalo Bills blue (`#00338D`), red (`#C60C30`), white and team logo
+- Game-day center with opponent, status, time, score and last play when the upstream feed supplies it
+- NFL live scoreboard: refreshes every 30 seconds while Auto is enabled
+- Bills win/loss record, AFC East standings, win percentage, point differential
+- Season team stats and player leaders from ESPN; no invented player figures
+- Roster directory, position filters and name/number search
+- Reported injuries and availability, plus links to the **official** Bills injury report and game-day inactive lists
+- Completed-game scoring chart and previous five results
+- Next eight games, news, opponent logos and local kickoff times
+- Super Bowl LXI likelihood meter: current market-implied probability **only when** a sportsbook futures feed is configured. Otherwise, a dated, visibly non-live ESPN FPI snapshot is displayed briefly, then expires
+- Dark, information-dense 3-column desktop layout; responsive tablet and phone views
+- Fullscreen wall mode, fit/compact mode, expand panels, drag-to-arrange within columns, reset and saved layout
+- Per-feed errors, source links, data timestamps, fallback to last-good API data during temporary interruptions
 
-## Limitations and flight safety
+## Running on Windows
 
-Wind-corrected ETA is an **estimate**, not a dispatch-approved navigational flight plan. Current implementation assumes cruise for the whole route and uses a **single selected FB station**. It does not include climb/descent, time/fuel for taxi, winds varying along the route, changing winds over time, magnetic variation, altitude-specific aircraft performance, terrain, controlled airspace, or arrival procedures. Use current official forecasts and the aircraft POH; allow appropriate fuel reserves. The listed FB forecasts are not current observed winds. No FAA NMS NOTAM connection settings were changed.
+1. Install **Node.js 22 or later** if it is not installed: https://nodejs.org/
+2. **Right-click the downloaded ZIP and choose `Extract All` before opening anything inside it.** Do not double-click `start-windows.bat` while browsing inside the compressed ZIP: Windows may copy only the launcher into a temporary folder and then report `Cannot find module ... server.mjs`.
+3. Open the **extracted** `Bills-Command-Dashboard` folder (the folder containing `server.mjs`, `app.js`, and `start-windows.bat`) and double-click `start-windows.bat`.
+4. Open `http://localhost:3000` in a browser. If your browser opens before the server finishes starting, refresh the page.
+5. Keep the command window open while using the dashboard. `Ctrl+C` stops the server.
 
-# Weather Command Dashboard v2.5 — Mobile + Airport Briefing + Wall Display
+Or open a terminal in the project folder and run `npm start`. This project has **no third-party npm dependencies**.
 
-Install the six files via GitHub Desktop; commit and push, then allow Render to deploy. Preserve `NMS_API_CLIENT_ID`, `NMS_API_CLIENT_SECRET`, `NMS_API_ENV` settings.
+On Mac/Linux run `./start-mac-linux.sh` (requires Node.js 22+).
 
-## Changes
-- Editable 3-letter winds/temperatures forecast station input and Go button; unavailable station is explicitly reported.
-- Radar animation now works on Route Map tab as well as Radar tab. RainViewer tiles updated to native 256-pixel requests; mobile map gets a responsive layout and resize recovery.
-- Airport lookup popup adds information from AWC and an optional OurAirports open dataset runway/frequency lookup, with a clear indication that operational details must be confirmed with official FAA Chart Supplement/airport. FBO/fuel/phones shown only when actually supplied by the source; otherwise provided official reference links.
-- Auto 3 min checkbox (enabled by default), wall fullscreen button and UTC/Zulu clock. All feeds are refreshed, but each source retains caching. FAA NMS limits remain on the server: at most one upstream request per 180 seconds across all airport queries *per process*.
+## Separate Render deployment
 
-## Important limitations
-- Production FAA NMS NOTAM requests across different airports compete for the single three-minute limit; an uncached lookup can return 429. Wall refresh does not bypass the FAA limit.
-- AWC FB winds stations are not every airport: the input requires an official 3-letter FB reporting station.
-- Runways/frequencies are from community data and not authoritative. FBO, fuel, phone, airspace are not guessed if unreported. Confirm operational details with FAA sources and directly with the airport.
-- Live third-party provider responses, network responsiveness, and radar rendering on particular phones require testing after deploy.
+Create a **new GitHub repository** such as `Bills-Command-Dashboard`, upload only this extracted project into it, then use Render **New → Blueprint** with its `render.yaml` or create a new Node Web Service with:
 
+- Build: `npm install`
+- Start: `npm start`
+- Health check: `/api/health`
+- Node >=22
 
-## v2.6 — enlarged radar map correction
-- Fixed conflicting modal image CSS that resized Leaflet's 256px radar tiles.
-- Enlarged map now starts at the exact current main-map center and zoom (route mode still fits the plotted route).
-- ResizeObserver and animation frame recalculate the map canvas after modal open, resize, or phone orientation change.
-- Route map enlargement receives the same viewport recovery.
-- Radar frames, existing FAA NOTAM integration and all other dashboards remain unchanged.
+Use a **different Render service** from the Weather Command Dashboard. Do not change the existing weather service or its repo settings. The app will run on its own URL. The `ODDS_API_KEY` is optional and is not required at deployment; add it later under the **new Bills service → Environment** if you subscribe to a futures-odds API.
 
-## v2.7 — Airport lookup data accuracy
-- Fixes the airport-lookup field elevation: does not interpret ambiguous AWC `elev` values as feet. Uses explicitly labelled `elevation_ft` from OurAirports when available, with a community-data caveat.
-- KOMA Eppley Airfield has verified FAA fields: surveyed elevation 984.5 feet MSL, Class C airspace, and a continuously staffed tower (FAA From the Flight Deck / published airport record). These are reference values, not a replacement for checking the current Chart Supplement or sectional.
-- Displays `Not verified — refer to current FAA sectional` for unsupported airspace fields instead of silently omitting them or inventing classifications.
-- Adds source labels to elevation/airspace/tower data. Other airport frequencies and runway data remain explicitly community sourced.
-- No change to FAA NMS configuration, NOTAM refresh limits or radar.
+### Refrigerator screen
 
+Open the new Render URL in the refrigerator browser, ideally with `?fridge=1` added to the end (for example, `https://YOUR-BILLS-APP.onrender.com/?fridge=1`). Bookmark that address. FRIDGE mode hides the extra banner/navigation and moves the game center to the top, using a touch-friendly responsive layout. You can also toggle **FRIDGE** in the header; the preference stays saved in that browser. **Auto** refresh remains enabled by default. Your refrigerator needs a browser capable of running modern JavaScript; support varies by model.
 
-## v2.8 — Local FAA airport identifiers in Flight Planner
-- Preserves FAA identifiers such as 84Y, 2V2, and 0B5 instead of incorrectly adding a K prefix. Three-letter alphabetic US identifiers such as OMA continue to normalize to KOMA.
-- Route endpoint obtains airport coordinates from AWC airport records where available and from the OurAirports open dataset when not; includes a published fallback for 84Y, Bloomfield Municipal Airport, Nebraska (42.5797244, -97.6736753).
-- Allows route-distance / estimated time / fuel calculations for airports without METAR and TAF observations. Marks unavailable observations explicitly.
-- KOMA → 84Y is the intended regression test. Flight planning calculations remain straight-line estimates, not obstacle, airspace, or weather-clearance validation.
-- Existing NOTAM throttling, data sources, and environment variables are unchanged.
+Free Render services may spin down after fifteen minutes without inbound traffic; a newly reopened fridge page may initially take time to wake the server.
 
-- Home Airport and Airport Lookup accept FAA local identifiers such as 84Y; do not add a K to identifiers containing digits. Winds Aloft requires an actual 3-letter FB forecast station, not an airport identifier. The UI now explains that distinction rather than inventing winds for 84Y.
+### Data feeds
 
-### Optional personal filed-route lookup
+| Component | Source | Key? | Update policy |
+| --- | --- | --- | --- |
+| Live scores | ESPN public NFL site scoreboard endpoint | No | Frontend every 30 seconds, server caches 25 seconds |
+| NFL games, Bills record, AFC East standings | ESPN site endpoint | No | Server caches 90–180 seconds |
+| Bills roster | ESPN team roster endpoint | No | Server caches 15 minutes |
+| Bills injuries | ESPN team injury endpoint | No | Server caches 3 minutes |
+| Bills player leaders & team statistics | ESPN site/core NFL endpoints | No | Server caches 5 minutes |
+| Team news | ESPN NFL news | No | Server caches 5 minutes |
+| Super Bowl outright futures | [The Odds API](https://the-odds-api.com/sports/super-bowl-winner-odds.html) | **Yes**, optional | Server requests at most once every 2 hours |
 
-The main aircraft tracker uses its existing live position feed. The **Filed Route** button makes a separate, on-demand FlightAware AeroAPI request for the selected tail number. Enable it on a personal deployment by setting `FLIGHTAWARE_API_KEY` and `WCD_FILED_ROUTE_ACCESS_CODE` in the server environment. Set the access code to a long, unique secret of your choice. Enter that code in the dashboard when prompted. Keep the AeroAPI key on the server. The personal feature is disabled in commercial mode.
+ESPN public site endpoints are not an officially guaranteed commercial API contract, can change without notice, and need live verification on your deployed environment. Official [Buffalo Bills injury report](https://www.buffalobills.com/team/injury-report/) and [NFL team page](https://www.nfl.com/teams/buffalo-bills/) are linked for validation. Do not assume an inactive player is injured; inactive and injury listings are different.
 
-The server verifies account-wide reported usage before making paid calls and pauses at a conservative threshold of $4.50, reserving for recent requests while FlightAware updates its usage meter. It requests no more than one result set for the aircraft record and makes a waypoint request only when it finds a filed route for an active or upcoming flight. The budget check covers dashboard requests and uses delayed account reporting. FlightAware bills independently and other applications using the account can consume the same allowance.
+### Super Bowl probability details
 
+If you supply `ODDS_API_KEY` as a secret environment variable, the backend fetches the **NFL Super Bowl Winner** futures odds and calculates the Buffalo Bills' share of the normalized probability pool for each listed sportsbook, then averages the available books. This removes each book's overround approximately but does **not** make sportsbook prices a perfect model of championship probability. The UI labels the value as market-implied, identifies the source and its timestamp, and updates after the configured cache duration. An active provider plan may incur charges; check pricing and licensing.
 
-### Live aircraft tracking — commercial flights and general aviation
+Without a key, a **dated November 20, 2026 ESPN FPI snapshot of 15.4%** (as reported by SportsGrid) may display until November 28, 2026. This is explicitly labelled **not real-time**. After that date, the dashboard displays no probability rather than endlessly displaying stale data. Source: https://www.sportsgrid.com/nfl/article/espn-ranks-all-32-nfl-teams-by-their-chances-of-making-the-2026-playoffs
 
-The **Track Aircraft** field and **Takeoff Alerts** watchlist accept GA registrations (e.g. `N123AB`, `C-GABC`), airline ticket-style flight numbers (e.g. `DL3475` → `DAL3475`, `WN3475` → `SWA3475`, `AA1200` → `AAL1200`, `UA909` → `UAL909`), and direct ICAO callsigns (`DAL3475`, `SWA3475`). The same mapping/validation module is shared between browser and server. Run `npm test` for input regressions.
+Store secrets on the **server only**, never in `app.js` or in a browser field. For local development create a `.env` file based on `.env.example`. Never commit your `.env` file or secret key to GitHub.
 
-Live tracking uses ADS-B feeds by **registration** for GA aircraft and by **callsign** for commercial flights. Aircraft must be broadcasting a usable ID and location; an airline may use a different callsign for codeshare or regional operations. Enter the actual operating ICAO callsign or tail number in those cases. An unknown two-character airline code shows an explicit error rather than silently searching as a tail number. ADS-B position feeds do **not** provide flight schedules, guarantee all aircraft are visible, or locate aircraft that are not transmitting.
+## Layout controls
 
-Takeoff notifications still require an open dashboard tab, permission for browser notifications, and fresh ground-to-airborne reports. These are not reliable server-side push notifications and do not continue with the browser fully closed. Public ADS-B providers have rate limits and separate restrictions on commercial use; confirm suitable licensing before selling this capability.
+- **AUTO** — updates scores in view every 30 seconds and other feeds every 3 minutes; tab reactivation triggers a refresh
+- **REFRESH** — forces a refresh (individual upstream caches apply)
+- **FRIDGE** — touch-friendly fridge and tablet layout, also activate with `?fridge=1` URL
+- **FIT** — compact layout for laptop/TV displays
+- **WALL** — browser fullscreen for a public display
+- **⤢** on any panel — expands that panel and preserves its contents and controls
+- **ARRANGE PANELS** — drag panels to reorder them inside their column, automatically saves the arrangement in the browser
+- **RESET LAYOUT** — restores the original arrangement
+
+## Tests
+
+`npm test` executes data-normalization tests (roster, game/score merges, injuries, standings, stats, odds). `npm run check` checks syntax. For a server smoke test, start the server and visit `http://localhost:3000/api/health`.
+
+## Known limitations
+
+- Access to live ESPN/odds upstream services was **not testable from the artifact-building environment**. The package, normalization tests, and local server health can be checked, but upstream availability requires internet access when running or deploying.
+- Team injuries and player stats can have gaps if the public ESPN feed changes or is incomplete. These panels explain the issue instead of fabricating values.
+- No separate native app is required; it is a responsive web app. On smart TVs, use a browser or a Fire TV browser to open the deployed URL and enable Wall/Fit modes.
+- ESPN and NFL team logos are loaded from ESPN's public CDN, not bundled. Such marks may be subject to trademark licensing restrictions, especially if you distribute this commercially. This is an independent fan project.
+- Browser localStorage for layout and compact settings is per browser/device.
+
+Copyright © 2026. Independent unofficial fan dashboard; not affiliated with or endorsed by the Buffalo Bills, NFL, ESPN, or the futures data provider.
