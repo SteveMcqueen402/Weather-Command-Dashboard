@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {normalizeTeam,normalizeGames,normalizeAllNFL,normalizeRoster,normalizeInjuries,normalizeLeaders,normalizeStats,normalizeStandings,normalizeNews,calculateMarketProbability,selectFeatured} from './lib/normalize.mjs';
+import {normalizeTeam,normalizeGames,normalizeAllNFL,normalizeRoster,normalizeInjuries,normalizeStats,normalizeStandings,normalizeNews,calculateMarketProbability,selectFeatured} from './lib/normalize.mjs';
 
 const root=path.dirname(fileURLToPath(import.meta.url));
 try{if(typeof process.loadEnvFile==='function')process.loadEnvFile(path.join(root,'.env'))}catch{}
@@ -55,7 +55,6 @@ const baseFeeds=season=>({
  schedule:[`${ESPN}/teams/2/schedule?season=${season}`,180000],
  roster:[`${ESPN}/teams/2/roster`,900000],
  injuries:[`${ESPN}/teams/2/injuries`,180000],
- leaders:[`${ESPN}/teams/2/leaders?season=${season}`,300000],
  stats:[`${CORE}/seasons/${season}/types/2/teams/2/statistics`,300000],
  standings:[`https://site.api.espn.com/apis/v2/sports/football/nfl/standings?season=${season}&type=2`,180000],
  news:[`${ESPN}/news?team=2&limit=12`,300000]
@@ -78,7 +77,7 @@ function resultPayload(feeds,odds,live){
  const timeline=games.filter(x=>x.status==='post').sort((a,b)=>Date.parse(a.date)-Date.parse(b.date));
  const next=games.filter(x=>x.status==='pre').slice(0,8);
  const oddsValue=odds.data||staticFpiSnapshot();
- return {generatedAt:nowISO(),season:seasonNow(),team,divisionRank:divisionRank<0?null:divisionRank+1,standings,roster,injuries:injured,gamedayInactives:officialGameDayInactives(),leaders:normalizeLeaders(data.leaders),stats:normalizeStats(data.stats),news:normalizeNews(data.news),games,featured:selectFeatured(games),upcoming:next,history:timeline,scoreboard:normalizeAllNFL(live.data),odds:{...odds,value:oddsValue},sources:{...sources,live:{ok:live.ok,updatedAt:live.updatedAt,stale:live.stale,error:live.error}},links:{bills:'https://www.buffalobills.com/',injuries:'https://www.buffalobills.com/team/injury-report/',nfl:'https://www.nfl.com/teams/buffalo-bills/',espn:'https://www.espn.com/nfl/team/_/name/buf',odds:'https://the-odds-api.com/sports/super-bowl-winner-odds.html'}};
+ return {generatedAt:nowISO(),season:seasonNow(),team,divisionRank:divisionRank<0?null:divisionRank+1,standings,roster,injuries:injured,gamedayInactives:officialGameDayInactives(),stats:normalizeStats(data.stats),news:normalizeNews(data.news),games,featured:selectFeatured(games),upcoming:next,history:timeline,scoreboard:normalizeAllNFL(live.data),odds:{...odds,value:oddsValue},sources:{...sources,live:{ok:live.ok,updatedAt:live.updatedAt,stale:live.stale,error:live.error}},links:{bills:'https://www.buffalobills.com/',injuries:'https://www.buffalobills.com/team/injury-report/',nfl:'https://www.nfl.com/teams/buffalo-bills/',espn:'https://www.espn.com/nfl/team/_/name/buf',odds:'https://the-odds-api.com/sports/super-bowl-winner-odds.html'}};
 }
 async function bootstrap(){
  const season=seasonNow();const feeds=baseFeeds(season);
