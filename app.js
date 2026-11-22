@@ -37,12 +37,12 @@ async function refreshFull(manual=false){
  try{const data=await getJSON('/api/dashboard');state.data=data;state.lastSuccess=data.generatedAt;
   renderAll();const ok=Object.values(data.sources).filter(s=>s.ok).length;
   statusBar(ok>0,`${ok} OF ${Object.keys(data.sources).length} ESPN FEEDS RESPONDING`);
- }catch(err){statusBar(false,err.message);if(!state.data){for(const id of ['division-list','leaders-list','injury-list-mini','news-list','trend-chart','schedule-list','stat-list','form-results','league-score-list','roster-grid','injury-table'])html(id,`<div class="feed-error">${safeText(err.message)}. Run the provided Node server and check its internet connection.</div>`)} }
+ }catch(err){statusBar(false,err.message);if(!state.data){for(const id of ['division-list','injury-list-mini','news-list','trend-chart','schedule-list','stat-list','form-results','league-score-list','roster-grid','injury-table'])html(id,`<div class="feed-error">${safeText(err.message)}. Run the provided Node server and check its internet connection.</div>`)} }
  finally{state.loading=false;btn.disabled=false;}
 }
 async function refreshLive(){if(!state.auto||!state.data)return;try{const latest=await getJSON('/api/live');mergeLive(latest);renderGame();renderScores();renderTrend();renderKPIs();renderRecentForm();set('game-updated',`Score feed ${dateTime(latest.updatedAt,{hour:'numeric',minute:'2-digit',second:'2-digit'})}`);if(!latest.ok)statusBar(false,'SCORE FEED UNAVAILABLE')}catch(err){set('league-status','Live score update failed • retrying');}}
 function renderAll(){if(!state.data)return;
- set('season-chip',`${state.data.season} SEASON`);renderKPIs();renderStandings();renderLeaders();renderInjuries();renderNews();renderGame();renderTrend();renderSchedule();renderOdds();renderTeamStats();renderRecentForm();renderScores();renderRoster();
+ set('season-chip',`${state.data.season} SEASON`);renderKPIs();renderStandings();renderInjuries();renderNews();renderGame();renderTrend();renderSchedule();renderOdds();renderTeamStats();renderRecentForm();renderScores();renderRoster();
  set('footer-update',`Data checked ${dateTime(state.data.generatedAt,{dateStyle:'short',timeStyle:'short'})}`);
 }
 function renderKPIs(){const d=state.data;if(!d)return;
@@ -60,11 +60,7 @@ function renderStandings(){const data=state.data.standings;
  if(!data.length){html('division-list',sourceMessage('standings','AFC East standings are currently unavailable.'));return}
  html('division-list','<div class="standing-header"><span>CLUB</span><strong>W–L</strong><strong>WIN%</strong></div>'+data.map(r=>`<div class="standing-row ${r.abbr==='BUF'?'highlight':''}"><div class="standing-team"><img loading="lazy" src="${safeLogo(r.logo,r.abbr)}" alt=""><span>${safeText(r.name)}</span></div><strong>${r.wins!=null?`${r.wins}-${r.losses??0}`:safeText(r.record||'—')}</strong><strong class="record-detail">${r.pct!=null?(r.pct*100).toFixed(0)+'%':r.wins!=null?(100*r.wins/Math.max(1,r.wins+(r.losses||0))).toFixed(0)+'%':'—'}</strong></div>`).join(''));
 }
-function renderLeaders(){const all=state.data.leaders||[];
- const cats=[];for(const l of all){const title=String(l.category||'').toLowerCase();const group=title.includes('pass')?'PASSING':title.includes('rush')?'RUSHING':title.includes('receiv')?'RECEIVING':title.includes('tackle')?'TACKLES':title.includes('sack')?'SACKS':title.toUpperCase();if(cats.some(x=>x.group===group))continue;cats.push({...l,group})}
- if(!cats.length){html('leaders-list',sourceMessage('leaders','Player statistical leaders are unavailable; no numbers will be guessed.'));return}
- html('leaders-list',cats.slice(0,8).map((l)=>`<div class="leader-item"><div class="leader-person"><small>${safeText(l.group)}</small><strong>${safeText(l.name)}</strong></div><div class="leader-value">${safeText(l.value??'—')}</div></div>`).join(''));
-}
+
 function injuryBadge(s){const text=String(s||'Unspecified');const lower=text.toLowerCase();const cls=lower.includes('out')?'out':lower.includes('reserve')||lower.includes('ir')?'ir':lower.includes('doubt')?'doubtful':lower.includes('question')?'questionable':lower.includes('active')?'active':lower.includes('full')?'full':'';return `<span class="status-pill ${cls}">${safeText(text)}</span>`}
 function renderInjuries(){const a=state.data.injuries||[];
  const inactive=state.data.gamedayInactives;
@@ -72,10 +68,10 @@ function renderInjuries(){const a=state.data.injuries||[];
 
  set('injury-count',`${a.length} REPORTED`);set('injury-sync',sourceState('injuries').updatedAt?`ESPN checked ${dateTime(sourceState('injuries').updatedAt,{hour:'numeric',minute:'2-digit'})}`:'ESPN injury feed unavailable');
  if(!a.length){let str=sourceState('injuries').ok?'No current player injury entries in the ESPN team feed. This does not confirm all players are active.':'Player-specific injury data unavailable from ESPN right now.';
- html('injury-list-mini',`${inactiveBlock}<div class="empty-message">${safeText(str)}<div><a href="https://www.buffalobills.com/team/injury-report/" target="_blank" rel="noopener">Official injury report ↗</a></div></div>`);html('injury-table',`${inactiveBlock}<div class="empty-message">${safeText(str)}<div><a href="https://www.buffalobills.com/team/injury-report/" target="_blank" rel="noopener">Check official Bills injury report ↗</a></div></div>`);return}
+ html('injury-list-mini',`<div class="empty-message">${safeText(str)}<div><a href="https://www.buffalobills.com/team/injury-report/" target="_blank" rel="noopener">Official injury report ↗</a></div></div>`);html('injury-table',`${inactiveBlock}<div class="empty-message">${safeText(str)}<div><a href="https://www.buffalobills.com/team/injury-report/" target="_blank" rel="noopener">Check official Bills injury report ↗</a></div></div>`);return}
  const risk=s=>{const t=s.toLowerCase();return t.includes('out')||t.includes('ir')?0:t.includes('doubt')?1:t.includes('question')?2:3};
  const sorted=[...a].sort((x,y)=>risk(x.status)-risk(y.status)||x.name.localeCompare(y.name));
- html('injury-list-mini',inactiveBlock+sorted.slice(0,6).map(x=>`<div class="injury-line"><div><strong>${safeText(x.name)}</strong><small>${safeText(x.position||'—')} • ${safeText(x.injury||'—')}</small></div>${injuryBadge(x.status)}</div>`).join(''));
+ html('injury-list-mini','<div class="injury-mini-header"><span>PLAYER</span><span>INJURY</span><span>STATUS</span></div>'+sorted.slice(0,8).map(x=>`<div class="injury-line"><strong title="${safeText(x.name)}">${safeText(x.name)}</strong><span class="injury-condition" title="${safeText(x.injury||'Not specified')}">${safeText(x.injury||'—')}</span>${injuryBadge(x.status||'Not specified')}</div>`).join(''));
  html('injury-table',inactiveBlock+'<div class="injury-header"><div>PLAYER</div><div>POSITION</div><div>STATUS</div><div>INJURY / CONDITION</div><div>REPORTED</div></div>'+sorted.map(x=>`<div class="injury-data"><div><strong>${safeText(x.name)}</strong></div><div>${safeText(x.position)}</div><div>${injuryBadge(x.status)}</div><div>${safeText(x.injury)}</div><div>${safeText(x.date?shortDate(x.date):'—')}</div></div>`).join(''));
 }
 function renderNews(){const items=state.data.news||[];
@@ -96,16 +92,12 @@ function renderGame(){const g=featuredGame(state.data.games);if(!g){set('game-st
  set('game-play',playing?g.play||'Live play detail not available from current feed.':final?`Final score: Bills ${fmt(g.billsScore)} – ${fmt(g.opponentScore)} ${g.opponentAbbr}`:`${g.opponent} • ${g.venue||'venue TBD'}`);
  $('game-espn-link').href=safeUrl(g.sourceUrl,'https://www.espn.com/nfl/team/_/name/buf');set('game-updated',state.data.sources?.live?.updatedAt?`Last fetched ${dateTime(state.data.sources.live.updatedAt,{hour:'numeric',minute:'2-digit'})}`:'Score feed not checked');
 }
-function renderTrend(){const all=state.data.games.filter(g=>g.status==='post'&&g.billsScore!=null&&g.opponentScore!=null).slice(-12);
- if(!all.length){html('trend-chart','<div class="empty-message">No confirmed final scores in the ESPN schedule feed.</div>');set('trend-summary','—');return}
- const max=Math.max(40,...all.map(g=>Math.max(g.billsScore,g.opponentScore)))*1.05;
- const maxH=126;
- html('trend-chart',all.map(g=>{const win=g.billsScore>g.opponentScore,loss=g.billsScore<g.opponentScore;
- const b=Math.max(2,Math.round(maxH*g.billsScore/max)),o=Math.max(2,Math.round(maxH*g.opponentScore/max));
- return `<div class="trend-item" title="${safeText(when(g.date))}: Bills ${g.billsScore}, ${safeText(g.opponentAbbr)} ${g.opponentScore}"><div class="trend-bars"><i class="bills" style="height:${b}px"></i><i class="opponent" style="height:${o}px"></i></div><span class="trend-abbr">${safeText(g.opponentAbbr||'OPP')}</span><span class="trend-result ${win?'win':loss?'loss':'tie'}">${win?'W':loss?'L':'T'} ${g.billsScore}-${g.opponentScore}</span></div>`}).join(''));
- const w=all.filter(g=>g.billsScore>g.opponentScore).length;
- set('trend-caption',`${all.length} MOST RECENT FINALS`);
- $('trend-summary').innerHTML=`<span>LAST ${all.length}: ${w} WINS • ${all.length-w} OTHERS</span><span>ESPN FINAL SCORES</span>`;
+function renderTrend(){const all=state.data.games.filter(g=>g.status==='post'&&g.billsScore!=null&&g.opponentScore!=null).slice(-10).reverse();
+ if(!all.length){html('trend-chart','<div class="empty-message">No confirmed final scores in the ESPN schedule feed.</div>');set('trend-caption','RECENT FINAL SCORES');set('trend-summary','—');return}
+ html('trend-chart','<table class="performance-table"><thead><tr><th scope="col">OPPONENT</th><th scope="col">FINAL • BUF–OPP</th><th scope="col">RESULT</th></tr></thead><tbody>'+all.map(g=>{const win=g.billsScore>g.opponentScore,loss=g.billsScore<g.opponentScore;const result=win?'W':loss?'L':'T';return `<tr><td><div class="performance-opponent"><strong>${safeText(g.opponentAbbr||'OPP')}</strong><small>${safeText(shortDate(g.date))} · ${g.isHome?'HOME':'AWAY'}</small></div></td><td class="performance-score">${g.billsScore} <span>–</span> ${g.opponentScore}</td><td><span class="performance-result ${win?'win':loss?'loss':'tie'}">${result}</span></td></tr>`}).join('')+'</tbody></table>');
+ const w=all.filter(g=>g.billsScore>g.opponentScore).length,l=all.filter(g=>g.billsScore<g.opponentScore).length,t=all.length-w-l;
+ set('trend-caption',`LAST ${all.length} FINAL GAMES`);
+ $('trend-summary').innerHTML=`<span>${w} WINS · ${l} LOSSES${t?' · '+t+' TIES':''}</span><span>ESPN FINAL SCORES</span>`;
 }
 function renderSchedule(){const g=state.data.games.filter(g=>g.status==='pre').slice(0,9);
  if(!g.length){html('schedule-list','<div class="empty-message">No upcoming games returned in the current season schedule.</div>');return}
