@@ -36,3 +36,32 @@
 .fridge-mode .league-scores{grid-template-columns:repeat(2,minmax(0,1fr))}
 .fridge-mode .brand-sub{display:none}
 }
+
+/* Bills Command v1.1 — compact season results and injury watch */
+#season-trend .performance-meta{display:flex;justify-content:space-between;flex-wrap:wrap;gap:5px;color:#92b7e5;font-size:9px;font-weight:850;letter-spacing:.45px;margin-bottom:7px}
+#season-trend .performance-meta span:last-child{color:#688dbb;font-size:8px}
+#season-trend .performance-list{display:block;min-height:0;max-height:215px;overflow-y:auto;overflow-x:hidden;border:1px solid #25466f;border-radius:6px;background:#071b34;scrollbar-color:#4778b4 #091d36}
+.performance-table{width:100%;border-collapse:collapse;table-layout:fixed;font-variant-numeric:tabular-nums}
+.performance-table th{position:sticky;top:0;background:#0a2a53;z-index:1;padding:5px 8px;text-align:left;color:#94b8e2;font-size:9px;letter-spacing:.4px;white-space:nowrap}
+.performance-table th:first-child{width:39%}.performance-table th:nth-child(2){width:41%;text-align:right}.performance-table th:last-child{width:20%;text-align:center}
+.performance-table td{padding:6px 8px;border-top:1px solid #1d3a61;color:#e7f3ff;font-size:11px;vertical-align:middle}
+.performance-table tbody tr:nth-child(even){background:#0b2443}
+.performance-opponent{display:flex;align-items:baseline;flex-wrap:wrap;column-gap:8px}
+.performance-opponent strong{font-size:11px;font-weight:900}.performance-opponent small{font-size:9px;color:#91add1;white-space:nowrap}
+.performance-score{text-align:right;font-weight:900;white-space:nowrap}.performance-score span{color:#91b4dc;font-weight:500}
+.performance-result{display:block;max-width:38px;margin:auto;text-align:center;font-size:10px;font-weight:950;padding:3px 5px;border-radius:4px;background:#1c365d}
+.performance-result.win{background:#10463d;color:#7ff0bd}.performance-result.loss{background:#5a2336;color:#ffc2d3}.performance-result.tie{background:#50431d;color:#f6db94}
+#injury-mini{padding-bottom:10px}
+#injury-mini .panel-head{margin-bottom:7px}
+#injury-mini .injury-mini-list{display:block;max-height:215px;overflow-y:auto;overflow-x:hidden;scrollbar-color:#4778b4 #091d36}
+#injury-mini .injury-mini-header,#injury-mini .injury-line{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr) minmax(64px,.77fr);align-items:center;gap:6px}
+#injury-mini .injury-mini-header{padding:5px 2px;border-bottom:1px solid #38567d;background:#0a294d;color:#94b9e4;font-size:8px;font-weight:900;letter-spacing:.4px}
+#injury-mini .injury-line{padding:6px 2px;border-bottom:1px solid #1e3c61;min-height:29px;font-size:10px}
+#injury-mini .injury-line strong,#injury-mini .injury-line .injury-condition{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#injury-mini .injury-line strong{font-size:10px;font-weight:850}
+#injury-mini .injury-condition{color:#a9c0dc;font-size:10px}
+#injury-mini .injury-mini-header span:last-child{text-align:right}
+#injury-mini .injury-line .status-pill{justify-self:end;max-width:100%;padding:3px 4px;font-size:8px;overflow:hidden;text-overflow:ellipsis}
+#injury-mini .panel-cta{padding-top:7px;margin-top:7px;font-size:9px}
+.modal-host #season-trend .performance-list,.modal-host #injury-mini .injury-mini-list{max-height:none;overflow-y:visible}
+@media(max-width:450px){.performance-table th,.performance-table td{padding-left:5px;padding-right:5px}.performance-opponent small{font-size:8px}#injury-mini .injury-mini-header,#injury-mini .injury-line{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr) minmax(62px,.8fr);gap:4px}}
