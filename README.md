@@ -71,3 +71,21 @@ The **Track Aircraft** field and **Takeoff Alerts** watchlist accept GA registra
 Live tracking uses ADS-B feeds by **registration** for GA aircraft and by **callsign** for commercial flights. Aircraft must be broadcasting a usable ID and location; an airline may use a different callsign for codeshare or regional operations. Enter the actual operating ICAO callsign or tail number in those cases. An unknown two-character airline code shows an explicit error rather than silently searching as a tail number. ADS-B position feeds do **not** provide flight schedules, guarantee all aircraft are visible, or locate aircraft that are not transmitting.
 
 Takeoff notifications still require an open dashboard tab, permission for browser notifications, and fresh ground-to-airborne reports. These are not reliable server-side push notifications and do not continue with the browser fully closed. Public ADS-B providers have rate limits and separate restrictions on commercial use; confirm suitable licensing before selling this capability.
+
+### Run the KOMA browser smoke test
+
+GitHub Actions opens the real dashboard in Chromium with sample weather and
+aircraft responses. The check covers the Zulu clock, KOMA METAR, local forecast,
+radar initialization, and a tracker lookup that converts WN3475 to SWA3475 and
+draws a map marker. It does not require API keys or validate live data providers.
+
+To run it locally, install the test tools and start the dashboard:
+
+```sh
+npm install --no-save --no-package-lock playwright@1.57.0 leaflet@1.9.4
+npx playwright install chromium
+npm start
+```
+
+With the server running on the default port (3000), run
+`node tests/dashboard-browser.mjs` in a second terminal.
