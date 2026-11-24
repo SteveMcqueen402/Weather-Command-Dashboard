@@ -4,6 +4,8 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { interpolateModelWind, unidataGfsWinds } from './gfs-guidance.mjs';
+import { classifyNotam } from './notam-category.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));
 const require=createRequire(import.meta.url);
 const {resolveAircraftIdentifier}=require('./aircraft-identifiers.cjs');
@@ -250,76 +252,88 @@ const modelWindsStations={OMA:[41.3032,-95.8941],OFK:[41.9855,-97.4351],DSM:[41.
 const modelWindsCache=new Map();
 const modelWindsPending=new Map();
 let modelProviderRetryAfter=0;
-async function readModelWinds(station,fcst){
-  const key=station+'/'+fcst,old=modelWindsCache.get(key);
-  const age=old?Date.now()-old.at:Infinity;
-  if(old&&age<75*60000)return old.value;
-  // When the provider answers HTTP 429, share a single retry window across
-  // ALL airports and all wall displays on this server. Otherwise the automatic
-  // three-minute refresh unintentionally worsens the provider's rate limit.
-  if(Date.now()<modelProviderRetryAfter){
-    if(old&&age<9*3600000)return {...old.value,stale:true,
-      header:['PREVIOUS MODEL FORECAST — PROVIDER TEMPORARILY RATE LIMITED',...old.value.header]};
-    throw Error('GFS forecast provider rate-limited (HTTP 429). Automatic retry after '+new Date(modelProviderRetryAfter).toISOString());
+let unidataRetryAfter=0;
+const modelFailureCache=new Map();
+async function openMeteoWinds(coords,target,key){
+  const levels=[1000,950,925,900,850,800,700,600,500];
+  const fields=levels.flatMap(p=>['wind_speed_'+p+'hPa','wind_direction_'+p+'hPa','geopotential_height_'+p+'hPa']);
+  const host=key?'https://customer-api.open-meteo.com':'https://api.open-meteo.com';
+  const url=new URL('/v1/gfs',host);
+  url.search=new URLSearchParams({latitude:coords[0],longitude:coords[1],hourly:fields.join(','),
+    wind_speed_unit:'kn',timezone:'GMT',forecast_days:'3',...(key?{apikey:key}:{})});
+  const response=await fetch(url,{headers:{'User-Agent':'WeatherCommandDashboard/3.13 (forecast model guidance)'},
+    signal:AbortSignal.timeout(6500)});
+  if(response.status===429){
+    const retry=response.headers.get('retry-after');
+    const after=retry&&/^\d+$/.test(retry)?Number(retry)*1000:Date.parse(retry)-Date.now();
+    modelProviderRetryAfter=Date.now()+Math.max(60000,Math.min(after||45*60000,6*3600000));
+    throw Error('Open-Meteo GFS forecast provider rate-limited (HTTP 429)');
   }
+  if(!response.ok)throw Error('Open-Meteo GFS model provider HTTP '+response.status);
+  const hourly=(await response.json()).hourly;
+  let best=-1,delta=Infinity;
+  for(const [i,t] of (hourly?.time||[]).entries()){
+    const diff=Math.abs(Date.parse(t+'Z')-target);
+    if(diff<delta){best=i;delta=diff}
+  }
+  if(best<0||delta>60*60000)throw Error('No timely Open-Meteo GFS forecast hours returned');
+  const points=levels.flatMap(p=>{
+    const speed=hourly['wind_speed_'+p+'hPa']?.[best],direction=hourly['wind_direction_'+p+'hPa']?.[best],
+      altitude=hourly['geopotential_height_'+p+'hPa']?.[best];
+    if(![speed,direction,altitude].every(Number.isFinite)||speed<0||direction<0||direction>360)return [];
+    const r=direction*Math.PI/180;
+    return [{altitude:altitude*3.28084,east:-speed*Math.sin(r),north:-speed*Math.cos(r)}];
+  });
+  const rows=interpolateModelWind(points);
+  if(!rows.length)throw Error('No Open-Meteo GFS wind levels covering selectable cruise altitudes');
+  return {rows,validAt:hourly.time[best]+'Z'};
+}
+
+async function readModelWinds(station,fcst){
+  const key=station+'/'+fcst,old=modelWindsCache.get(key),now=Date.now(),target=now+Number(fcst)*3600000;
+  const oldValid=Date.parse(old?.value.validAt);
+  const timely=oldValid>now&&Math.abs(oldValid-target)<=3*3600000;
+  const previous=()=>timely?{...old.value,stale:true,
+    header:['PREVIOUS MODEL FORECAST — CURRENT UPDATE UNAVAILABLE',...old.value.header]}:null;
+  if(timely&&now-old.at<75*60000)return old.value;
   if(modelWindsPending.has(key))return modelWindsPending.get(key);
+  const failed=modelFailureCache.get(key);
+  if(failed&&now<failed.until){
+    if(previous())return previous();
+    throw Error(failed.message);
+  }
   const pending=(async()=>{
-    // Limit request size; pressure-level height is required to interpolate
-    // winds to actual MSL altitudes without inventing an altitude conversion.
-    const levels=[925,900,850,800,700,600,500];
-    const fields=levels.flatMap(p=>['wind_speed_'+p+'hPa','wind_direction_'+p+'hPa','geopotential_height_'+p+'hPa']);
-    const [lat,lon]=modelWindsStations[station];
-    // A paid commercial Open-Meteo subscription uses the customer host and an
-    // API key. Leave the personal prototype unchanged until a key is provided.
+    const coords=modelWindsStations[station];
     const openMeteoKey=(process.env.OPEN_METEO_API_KEY||'').trim();
-    const commercialMode=process.env.WCD_COMMERCIAL_MODE==='true';
-    if(commercialMode&&!openMeteoKey)throw Error('Commercial Open-Meteo forecast unavailable: configure OPEN_METEO_API_KEY.');
-    const openMeteoHost=openMeteoKey?'https://customer-api.open-meteo.com':'https://api.open-meteo.com';
-    const url=openMeteoHost+'/v1/gfs?latitude='+lat+'&longitude='+lon+
-      '&hourly='+encodeURIComponent(fields.join(','))+'&wind_speed_unit=kn&timezone=GMT&forecast_days=2'+
-      (openMeteoKey?'&apikey='+encodeURIComponent(openMeteoKey):'');
-    try{
-      const response=await fetch(url,{headers:{'User-Agent':'WeatherCommandDashboard/3.12 (forecast model guidance)'},signal:AbortSignal.timeout(14000)});
-      if(response.status===429){
-        const retry=Number(response.headers.get('retry-after'));
-        modelProviderRetryAfter=Date.now()+(Number.isFinite(retry)&&retry>0?Math.min(retry*1000,6*3600000):45*60000);
-        throw Error('GFS forecast provider HTTP 429 (rate limited)');
+    const commercial=process.env.WCD_COMMERCIAL_MODE==='true';
+    // Keep public-service use within personal mode until its commercial terms are reviewed.
+    if(commercial&&!openMeteoKey)throw Error('Commercial winds require a configured forecast provider.');
+    let output,source;
+    const errors=[];
+    if(now>=modelProviderRetryAfter){
+      try{output=await openMeteoWinds(coords,target,openMeteoKey);source='Open-Meteo GFS model guidance'}
+      catch(err){errors.push(err.message)}
+    }else{errors.push('Open-Meteo GFS is temporarily rate-limited')}
+    if(!output&&!commercial&&now>=unidataRetryAfter){
+      try{output=await unidataGfsWinds(coords,target);source='NOAA/NCEP GFS via UCAR Unidata'}
+      catch(err){
+        if(err.retryMs)unidataRetryAfter=Date.now()+Math.max(60000,Math.min(err.retryMs,6*3600000));
+        errors.push(err.message);
       }
-      if(!response.ok)throw Error('GFS model provider HTTP '+response.status);
-      const hourly=(await response.json()).hourly;
-      if(!hourly?.time?.length)throw Error('No model forecast hours returned');
-      const target=Date.now()+Number(fcst)*3600000;
-      const idx=hourly.time.reduce((best,t,i)=>Math.abs(Date.parse(t+'Z')-target)<Math.abs(Date.parse(hourly.time[best]+'Z')-target)?i:best,0);
-      const points=levels.map(p=>({altitude:Number(hourly['geopotential_height_'+p+'hPa']?.[idx])*3.28084,
-        speed:Number(hourly['wind_speed_'+p+'hPa']?.[idx]),direction:Number(hourly['wind_direction_'+p+'hPa']?.[idx])}))
-        .filter(v=>Number.isFinite(v.altitude)&&Number.isFinite(v.speed)&&Number.isFinite(v.direction))
-        .sort((a,b)=>a.altitude-b.altitude);
-      if(points.length<2)throw Error('Model wind pressure levels unavailable');
-      const rows=[3000,6000,9000,12000,18000]
-        .filter(ft=>ft>=points[0].altitude&&ft<=points.at(-1).altitude).map(altitude=>{
-          const i=points.findIndex(v=>v.altitude>=altitude);
-          if(i<=0)return null;
-          const low=points[i-1],high=points[i],t=(altitude-low.altitude)/(high.altitude-low.altitude);
-          const vector=p=>({e:-p.speed*Math.sin(p.direction*Math.PI/180),
-            n:-p.speed*Math.cos(p.direction*Math.PI/180)});
-          const a=vector(low),b=vector(high);
-          const east=a.e+(b.e-a.e)*t,north=a.n+(b.n-a.n)*t,speed=Math.hypot(east,north);
-          return {altitude,direction:Math.round((Math.atan2(-east,-north)*180/Math.PI+360)%360),
-            speed:Math.round(speed),tempC:null,calm:speed<1,raw:null};
-        }).filter(Boolean);
-      if(!rows.length)throw Error('No model wind data for selectable flight levels');
-      const validAt=hourly.time[idx]+'Z';
-      const value={station,fcst,rows,levels:rows.map(x=>x.altitude),available:true,
-        header:['MODEL VALID '+validAt,'GFS guidance — NOT an official FB forecast'],
-        source:'Open-Meteo GFS model guidance',modelGuidance:true,validAt,
-        retrievedAt:new Date().toISOString()};
-      modelWindsCache.set(key,{at:Date.now(),value});
-      return value;
-    }catch(err){
-      if(old&&age<9*3600000)return {...old.value,stale:true,
-        header:['PREVIOUS MODEL FORECAST — CURRENT UPDATE UNAVAILABLE',...old.value.header]};
-      throw err;
+    }else if(!output&&!commercial){errors.push('Unidata GFS is temporarily rate-limited')}
+    if(!output){
+      const message=errors.join('; ')||'No winds-aloft model guidance available';
+      modelFailureCache.set(key,{until:Date.now()+5*60000,message});
+      if(previous())return previous();
+      throw Error(message);
     }
+    const {rows,validAt}=output;
+    const value={station,fcst,rows,levels:rows.map(x=>x.altitude),available:true,
+      header:['MODEL VALID '+validAt,'GFS guidance, not an official FB forecast'],
+      source,modelGuidance:true,validAt,retrievedAt:new Date().toISOString()};
+    modelFailureCache.delete(key);
+    modelWindsCache.set(key,{at:Date.now(),value});
+    return value;
   })();
   modelWindsPending.set(key,pending);
   try{return await pending}finally{modelWindsPending.delete(key)}
@@ -425,7 +439,10 @@ function extractNmsNotams(payload,airport){
     const location=first(notam.icaoLocation,notam.location,props?.icaoLocation,props?.location,props?.locationId,props?.airport)||airport;
     const category=first(notam.classification,props?.classification,props?.feature,props?.category,props?.type)||'NOTAM';
     const safeOriginal=original||message||JSON.stringify(props).slice(0,4000);
-    return {number:serial.slice(0,160),category:category.slice(0,100),categoryCode:'OTHER',text:safeOriginal.slice(0,12000),reading:(message||original||'Review original FAA NOTAM details.').slice(0,4000),start:first(notam.effectiveStart,props?.effectiveStartDate,props?.effectiveStart,props?.startDate,props?.validFrom)||null,end:first(notam.effectiveEnd,props?.effectiveEndDate,props?.effectiveEnd,props?.endDate,props?.validTo)||null,isTfr:false,location,status:'unverified',rawProperties:props};
+    const tags=classifyNotam(notam.selectionCode,notam.type,message,original);
+    const labels={RUNWAY:'Runway',RWY_COND:'Runway condition',TAXIWAY:'Taxiway',AIRSPACE:'Airspace',NAVAID:'Navaid'};
+    const displayCategory=(tags.cancellation?'Cancellation · ':'')+(labels[tags.categoryCode]||category);
+    return {number:serial.slice(0,160),category:displayCategory.slice(0,100),categoryCode:tags.categoryCode,text:safeOriginal.slice(0,12000),reading:(message||original||'Review original FAA NOTAM details.').slice(0,4000),start:first(notam.effectiveStart,props?.effectiveStartDate,props?.effectiveStart,props?.startDate,props?.validFrom)||null,end:first(notam.effectiveEnd,props?.effectiveEndDate,props?.effectiveEnd,props?.endDate,props?.validTo)||null,isTfr:tags.isTfr,cancellation:tags.cancellation,location,status:tags.cancellation?'cancellation':'unverified',rawProperties:props};
   });
 }
 
