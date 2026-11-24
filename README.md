@@ -89,3 +89,14 @@ npm start
 
 With the server running on the default port (3000), run
 `node tests/dashboard-browser.mjs` in a second terminal.
+
+### Current route-wind data
+
+The historical FB instructions above describe older releases. For supported
+stations (OMA, OFK and DSM), when the legacy FB product is unavailable, model
+guidance comes from Open-Meteo GFS or, in personal mode, NOAA/NCEP GFS via
+[UCAR Unidata](https://tds.scigw.unidata.ucar.edu/thredds/catalog/grib/NCEP/GFS/Global_0p25deg/catalog.html).
+Both are labeled as GFS guidance, with the valid time. When neither provider
+has timely data for the selected altitude, the route stays explicitly marked
+still-air unless a manual cruise wind is entered. Use an official briefing
+for flight planning.

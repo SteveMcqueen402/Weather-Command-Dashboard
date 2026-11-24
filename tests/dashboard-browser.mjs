@@ -17,6 +17,15 @@ const fixtures = new Map([
     metars: [{ icaoId: 'KOMA', rawOb: metar, fltCat: 'VFR', wspd: 12, wdir: 270 }],
     tafs: [],
   }],
+  ['/api/airport-route?ids=KOMA%2C84Y', {
+    metars: [{ icaoId: 'KOMA', rawOb: metar, fltCat: 'VFR' }],
+    airports: [{ icaoId: 'KOMA', lat: 41.301, lon: -95.894 }, { icaoId: '84Y', lat: 42.58, lon: -97.67 }],
+  }],
+  ['/api/winds-aloft?station=OMA&fcst=06', {
+    available: true, modelGuidance: true, source: 'NOAA/NCEP GFS via UCAR Unidata',
+    rows: [{ altitude: 6000, direction: 310, speed: 19 }],
+    header: ['MODEL VALID 2026-11-25T06:00:00Z'],
+  }],
   ['/api/location-forecast?lat=41.301&lon=-95.894', forecast],
   ['/api/home-alerts?lat=41.301&lon=-95.894', { features: [] }],
   ['/api/aviation-hazards?station=KOMA&lat=41.301&lon=-95.894', {
@@ -81,9 +90,19 @@ try {
       .waitFor({ state: 'visible' });
     await page.locator('#main-map .tracked-aircraft-icon').waitFor({ state: 'visible' });
     assert.equal(aircraftRequests, 1, 'the tracker should look up the operating callsign');
+    await page.locator('#notam-feed-status').filter({ hasText: 'No NOTAMs returned' }).waitFor({ state: 'visible' });
+    await page.getByRole('textbox', { name: 'Destination identifier' }).fill('84Y');
+    await page.getByRole('button', { name: 'Plan route', exact: true }).click();
+    await page.locator('#distance').filter({ hasText: /110 NM/ }).waitFor({ state: 'visible' });
+    await page.locator('#route-wind-summary').filter({ hasText: /UCAR Unidata.*19 kt from 310° true/ }).waitFor({ state: 'visible' });
+    await page.getByRole('button', { name: /Expand .*ROUTE PLANNER/ }).click();
+    await page.getByRole('dialog', { name: 'Route Airport Weather' }).waitFor({state: 'visible'});
+    await page.getByRole('button', { name: 'Close viewer' }).click();
+    await page.getByRole('dialog', { name: 'Route Airport Weather' }).waitFor({state: 'hidden'});
+
     assert.deepEqual(unhandledApiRequests, [], 'all API calls should use fixtures');
     assert.deepEqual(pageErrors, [], 'there should be no uncaught browser errors');
-    console.log('KOMA browser smoke test passed: weather panels and aircraft tracker initialized.');
+    console.log('KOMA browser smoke test passed: weather, NOTAMs, aircraft tracker, and wind-adjusted route work.');
   } catch (error) {
     if (pageErrors.length) console.error('Uncaught browser errors:', pageErrors);
     if (unhandledApiRequests.length) console.error('Unmocked API requests:', unhandledApiRequests);
